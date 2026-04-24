@@ -17,10 +17,14 @@ def run_flask():
 TOKEN = os.getenv("TOKEN")
 
 async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 사용자가 /이벤트 또는 /1을 입력했을 때만 작동
-    if update.message and update.message.text and (update.message.text.startswith("/이벤트") or update.message.text.startswith("/1")):
-        
-        # 요청하신 전체 문구 (한 글자도 빠짐없이 넣었습니다)
+    # 메시지가 아예 없거나 텍스트가 없는 경우 방지
+    if not update.message or not update.message.text:
+        return
+
+    user_text = update.message.text
+    
+    # "/이벤트" 또는 "/1" 이 포함되어 있으면 무조건 발동
+    if "/이벤트" in user_text or "/1" in user_text:
         event_caption = (
             "이벤트 문의는 아래 양식으로만 접수합니다.\n\n"
             "양식에 맞추지 않고 작성한 문의건은 처리 불가하며, 앞으로 양식 미준수 건은 자동 참여불가 처리합니다.\n\n"
@@ -67,9 +71,7 @@ if __name__ == "__main__":
         threading.Thread(target=run_flask, daemon=True).start()
         app = ApplicationBuilder().token(TOKEN).build()
         
-        # 한글 명령어 처리를 위한 핸들러
-        app.add_handler(MessageHandler(filters.TEXT & filters.COMMAND, event))
-        # 숫자 /1 도 작동하도록 유지
-        app.add_handler(CommandHandler("1", event))
+        # 모든 메시지(TEXT)를 감시해서 '이벤트'라는 글자가 있는지 확인하는 방식
+        app.add_handler(MessageHandler(filters.TEXT, event))
         
         app.run_polling()
