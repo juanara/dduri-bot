@@ -55,7 +55,6 @@ async def send_custom_output(context, chat_id, data, title=""):
     try:
         photos, caption = data["photos"], f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
         markup = build_button_markup(data.get("buttons", ""))
-        
         if len(caption) <= 1000:
             if len(photos) == 1:
                 await context.bot.send_photo(chat_id, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
@@ -78,12 +77,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cap_html = update.message.caption_html or ""
     is_private = update.effective_chat.type == "private"
 
-    # --- [ 신규 추가: 니노 키워드 반응 ] ---
-    if text == "니노":
-        return await update.message.reply_text(
-            "<tg-spoiler>님 ㅇㅂ?..</tg-spoiler>",
-            parse_mode="HTML"
-        )
+    # --- [ 핵심 수정: "니노" 포함 모든 메시지에 스포일러 답장 ] ---
+    if "니노" in text or "니노" in cap_html:
+        # 단, 봇이 스스로 보낸 메시지에는 반응하지 않도록 방지
+        if not update.message.from_user.is_bot:
+            return await update.message.reply_text(
+                "<tg-spoiler>님 ㅇㅂ?..</tg-spoiler>",
+                parse_mode="HTML"
+            )
 
     # [주사위]
     if text in ["/주사위", "!주사위"]:
@@ -92,7 +93,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = html.escape(update.message.from_user.first_name)
         return await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{res:,}</b>", parse_mode="HTML")
 
-    # [관리자 전용 - 1:1 채팅 전용]
+    # [관리자 전용 - 1:1 대화 전용]
     if uid == ADMIN_ID and is_private:
         if text == "/카운트확인":
             return await update.message.reply_text(f"📊 현재 누적 카운트: <b>{message_counter}</b>", parse_mode="HTML")
@@ -116,7 +117,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, update.message.chat_id, context))
             return
 
-    # [카운팅 및 당첨 이벤트]
+    # [카운팅 - 그룹방만]
     if not is_private and not text.startswith(('/', '!')) and not cap_html.startswith('/'):
         message_counter += 1
         if message_counter % 100 == 0: save_db({"commands": db, "counter": message_counter})
@@ -124,7 +125,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "_event_celebration_" in db:
                 await send_custom_output(context, update.message.chat_id, db["_event_celebration_"], f"🎊 {message_counter}번째 당첨! 🎊")
 
-    # [일반 명령어 출력]
+    # [명령어 출력]
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
@@ -139,14 +140,18 @@ async def save_logic(m_id, chat_id, context):
             if "/이벤트설정" in raw_cap:
                 key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
             else:
-                parts = raw_cap.split("/personal", 1)[1].strip().split(None, 1)
-                key, content = parts[0], parts[1] if len(parts) > 1 else ""
+                # /personal 명령어와 키, 본문 분리
+                match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_cap, re.DOTALL)
+                if match:
+                    key, content = match.group(1), match.group(2)
+                else: throw # 형식 안맞으면 무시
+            
             msg, btn = content, ""
             if "---" in content: msg, btn = content.rsplit("---", 1)
             btn = re.sub('<[^<]+?>', '', btn).strip()
             db[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": btn}
             save_db({"commands": db, "counter": message_counter})
-            await context.bot.send_message(chat_id, f"✅ [{key}] 등록 완료!")
+            await context.bot.send_message(chat_id, f"✅ [{key}] 서식 포함 등록 완료!")
         except: pass
         del media_group_cache[m_id]
 
