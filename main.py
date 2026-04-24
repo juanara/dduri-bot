@@ -68,3 +68,7 @@ if __name__ == "__main__":
     if TOKEN:
         threading.Thread(target=run_flask, daemon=True).start()
         app = ApplicationBuilder().token(TOKEN).build()
+        
+        # ▼ 이 두 줄이 무조건 살아있어야 합니다! ▼
+        app.add_handler(CommandHandler("1", event))
+        app.run_polling()
