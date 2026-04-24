@@ -20,7 +20,7 @@ media_group_cache = {}
 message_counter = 0
 
 def get_weighted_dice():
-    """요청하신 정밀 확률 (500단위)"""
+    """요청하신 정밀 확률 (500단위, 최대 5만)"""
     seed = random.random() * 100
     if seed < 0.1: # 4만이상 (0.1%)
         return random.randrange(40000, 50001, 500)
@@ -30,12 +30,13 @@ def get_weighted_dice():
         return random.randrange(10000, 30000, 500)
     elif seed < 8.1: # 5천이상 (4.0%)
         return random.randrange(5000, 10000, 500)
-    else: # 5천미만 나머지
+    else: # 5천미만 나머지 (91.9%)
         return random.randrange(500, 5000, 500)
 
 def build_button_markup(button_data):
-    keyboard = []
+    """버튼이 하나도 없으면 아예 None을 반환해서 불필요한 메시지 방지"""
     if not button_data: return None
+    keyboard = []
     lines = button_data.strip().split('\n')
     for line in lines:
         row = []
@@ -45,36 +46,33 @@ def build_button_markup(button_data):
                 name, url = btn.split('|', 1)
                 row.append(InlineKeyboardButton(name.strip(), url=url.strip()))
         if row: keyboard.append(row)
-    return InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(keyboard) if keyboard else None
 
 async def send_custom_output(context, chat_id, data, title=""):
-    """사진 캡션으로 글을 넣는 통합 전송 방식"""
     try:
         photos = data["photos"]
-        # 제목이 있으면 본문 위에 합침
         full_caption = f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
         markup = build_button_markup(data.get("buttons", ""))
 
         if len(photos) == 1:
-            # 사진 1장: 사진+글+버튼이 완벽하게 한 세트로 나감
-            await context.bot.send_photo(
-                chat_id=chat_id, 
-                photo=photos[0], 
-                caption=full_caption, 
-                parse_mode="HTML", 
-                reply_markup=markup
-            )
+            # 사진 1장: 사진+글+버튼 한 번에 전송
+            await context.bot.send_photo(chat_id=chat_id, photo=photos[0], caption=full_caption, parse_mode="HTML", reply_markup=markup)
         else:
-            # 사진 여러 장: 첫 번째 사진에 글을 붙이고, 버튼은 바로 아래 메시지로 전송
+            # 사진 여러 장: 앨범 전송 (캡션 포함)
             media = [InputMediaPhoto(photos[0], caption=full_caption, parse_mode="HTML")]
             media += [InputMediaPhoto(fid) for fid in photos[1:]]
             await context.bot.send_media_group(chat_id=chat_id, media=media)
+            
+            # 버튼이 있을 때만 추가 메시지 전송 (문구는 더 세련되게 수정 가능)
             if markup:
-                await context.bot.send_message(chat_id=chat_id, text="👇 하단 메뉴를 이용하세요.", reply_markup=markup)
+                await context.bot.send_message(
+                    chat_id=chat_id, 
+                    text="⚡️ **아래 버튼을 눌러 이동하세요**", 
+                    reply_markup=markup, 
+                    parse_mode="HTML"
+                )
     except Exception as e:
-        logging.error(f"전송 오류 (글자 수 초과 가능성): {e}")
-        # 오류 발생 시 안전하게 텍스트만이라도 전송
-        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ 전송 오류(내용이 너무 길 수 있습니다):\n\n{full_caption[:1000]}", parse_mode="HTML")
+        logging.error(f"전송 오류: {e}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, media_group_cache, message_counter
@@ -135,7 +133,7 @@ async def save_logic(m_id, chat_id, context):
             msg_text, btn_text = content, ""
             if "---" in content: msg_text, btn_text = content.rsplit("---", 1)
             db[cmd_key] = {"photos": target["ids"], "caption": msg_text.strip(), "buttons": btn_text.strip()}
-            await context.bot.send_message(chat_id=chat_id, text=f"✅ 등록 완료! (사진 {len(target['ids'])}장)")
+            await context.bot.send_message(chat_id=chat_id, text=f"✅ {'이벤트 축하문구' if is_event else '['+cmd_key+']'} 등록 완료!")
         del media_group_cache[m_id]
 
 if __name__ == "__main__":
