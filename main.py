@@ -1,81 +1,134 @@
-from telegram import Update, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import os
+import os, re, threading, asyncio, logging, random
+from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from flask import Flask
-import threading
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 flask_app = Flask(__name__)
-
 @flask_app.route('/')
-def health_check():
-    return "Bot is running!", 200
-
+def health_check(): return "Bot is running!", 200
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port)
 
 TOKEN = os.getenv("TOKEN")
+ADMIN_ID = 8472713103 
 
-async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 메시지가 없거나 텍스트가 없는 경우 방지
-    if not update.message or not update.message.text:
-        return
+db = {}
+media_group_cache = {}
+message_counter = 0
 
-    user_text = update.message.text
-    
-    # "/이벤트" 또는 "/1" 이 포함되어 있으면 발동
-    if "/이벤트" in user_text or "/1" in user_text:
-        # 이모지 ID 변수 설정
-        heart_emoji = "<tg-emoji emoji-id='5219862119209520083'>💕</tg-emoji>"
-        face_emoji = "<tg-emoji emoji-id='5427161992811004191'>☺️</tg-emoji>"
+def parse_premium_emojis(text, entities):
+    if not text or not entities: return text or ""
+    html_text = list(text)
+    for entity in sorted(entities, key=lambda e: e.offset, reverse=True):
+        if entity.custom_emoji_id:
+            start, end = entity.offset, entity.offset + entity.length
+            if start < len(html_text):
+                emoji_code = f"<tg-emoji emoji-id='{entity.custom_emoji_id}'>{text[start:end]}</tg-emoji>"
+                html_text[start:end] = emoji_code
+    return "".join(html_text)
 
-        event_caption = (
-            "이벤트 문의는 아래 양식으로만 접수합니다.\n\n"
-            "양식에 맞추지 않고 작성한 문의건은 처리 불가하며, 앞으로 양식 미준수 건은 자동 참여불가 처리합니다.\n\n"
-            " 번거로우시더라도 원활한 처리를 위해 반드시 지켜주시기 바랍니다.\n\n"
-            "사이트 :\n"
-            "닉네임 :\n"
-            "참여금액 :\n"
-            "이벤트내용 :\n\n"
-            "※ 첫충/매충 등 동일인이 여러 이벤트를 신청할 경우, 이벤트별로 각각 작성해 주세요.\n\n"
-            "예)\n"
-            "이벤트1.\n"
-            "사이트 :\n"
-            "닉네임 :\n"
-            "참여금액 :\n"
-            "이벤트내용 :\n\n"
-            "이벤트2.\n"
-            "사이트 :\n"
-            "닉네임 :\n"
-            "참여금액 :\n"
-            "이벤트내용 :\n\n"
-            " 양식 미준수(예: “이벤트주세요”, “참여요” 등 간단 문의)는 접수 불가합니다. \n\n"
-            f" 반복 안내 후에도 양식 미준수 시 향후 이벤트 참여 제한이 있을 수 있으니 협조 부탁드립니다. {face_emoji}\n\n\n"
-            f"{heart_emoji}사이트 이벤트 = 사이트 고객센터\n"
-            f"{heart_emoji}가족방 이벤트 = 연합총장.SITE {heart_emoji}"
-        )
+def build_button_markup(button_data):
+    keyboard = []
+    if not button_data: return None
+    lines = button_data.strip().split('\n')
+    for line in lines:
+        row = []
+        buttons = line.split('&&')
+        for btn in buttons:
+            if '|' in btn:
+                name, url = btn.split('|', 1)
+                row.append(InlineKeyboardButton(name.strip(), url=url.strip()))
+        if row: keyboard.append(row)
+    return InlineKeyboardMarkup(keyboard)
+
+def get_weighted_dice():
+    rand_val = random.random() * 100
+    if rand_val < 90: return 2000
+    elif rand_val < 93: return random.randint(10, 50) * 1000
+    else:
+        return random.choice([1000, 3000, 4000, 5000, 6000, 7000, 8000, 9000])
+
+async def send_custom_output(context, chat_id, data, title=""):
+    media = [InputMediaPhoto(data["photos"][0], caption=data["caption"], parse_mode="HTML")]
+    media += [InputMediaPhoto(fid) for fid in data["photos"][1:]]
+    await context.bot.send_media_group(chat_id=chat_id, media=media)
+    markup = build_button_markup(data["buttons"])
+    await context.bot.send_message(chat_id=chat_id, text=title or "👇 메뉴 리스트", reply_markup=markup)
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global db, media_group_cache, message_counter
+    if not update.message: return
+    user_id = update.message.from_user.id
+    text = update.message.text or ""
+    caption = update.message.caption or ""
+
+    # [1. 주사위]
+    if text in ["/주사위", "!주사위"]:
+        res = get_weighted_dice()
+        effect = "🔥" if res >= 10000 else "🎲"
+        return await update.message.reply_text(f"{update.message.from_user.first_name}님의 결과: {effect} **{res:,}**", parse_mode="Markdown")
+
+    # [2. 관리자 기능]
+    if user_id == ADMIN_ID:
+        if text == "/카운트확인": return await update.message.reply_text(f"📊 카운트: {message_counter}")
+        if text == "/카운트리로드":
+            message_counter = 0
+            return await update.message.reply_text("🔢 초기화 완료")
         
-        media = [
-            InputMediaPhoto("AgACAgUAAxkBAAMRaesMN3B7oN3YzpO1uPXxx7c_TNQAAn0PaxvK_FlXDpCkEHDNt5kBAAMCAAN5AAM7BA", caption=event_caption, parse_mode="HTML"),
-            InputMediaPhoto("AgACAgUAAxkBAAMSaesMN7_uf8oG0cHblQWTUCh8ftQAAn4PaxvK_FlXFI0GlnCjyQgBAAMCAAN5AAM7BA"),
-            InputMediaPhoto("AgACAgUAAxkBAAMTaesMN7wqlQe0HY_Id-VIu-WVfiEAAn8PaxvK_FlXuKpKlA_IjnIBAAMCAAN5AAM7BA"),
-            InputMediaPhoto("AgACAgUAAxkBAAMUaesMN60FX6XjnC99nHolHgRvSWEAAoAPaxvK_FlXAAGK-TvCzezgAQADAgADeQADOwQ"),
-            InputMediaPhoto("AgACAgUAAxkBAAMVaesMN_pU8B4jl2g6IUCnIthgHcsAAoEPaxvK_FlXZW0NWBXSj40BAAMCAAN5AAM7BA"),
-            InputMediaPhoto("AgACAgUAAxkBAAMWaesMNy5PWpPTvJyA61CztjglWcYAAoIPaxvK_FlX0gi06hvNXv0BAAMCAAN5AAM7BA"),
-            InputMediaPhoto("AgACAgUAAxkBAAMQaesMN9rfjcwJ8rnfK4c9S71_CEgAAnwPaxvK_FlX_tyL1jbI-yoBAAMCAAN5AAM7BA"),
-        ]
-        
-        try:
-            await update.message.reply_media_group(media)
-        except Exception as e:
-            print(f"Error: {e}")
+        if update.message.photo:
+            m_id = update.message.media_group_id or f"s_{update.message.message_id}"
+            if m_id not in media_group_cache:
+                media_group_cache[m_id] = {"ids": [], "caption": "", "entities": None, "task": None}
+            media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
+            if caption.startswith(("/personal", "/이벤트설정")):
+                media_group_cache[m_id]["caption"] = caption
+                media_group_cache[m_id]["entities"] = update.message.caption_entities
+            if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
+            media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, update.message.chat_id, context))
+            return
+
+    # [3. 5,000번 이벤트]
+    if not text.startswith(('/', '!')) and not caption.startswith('/'):
+        message_counter += 1
+        if message_counter > 0 and message_counter % 5000 == 0:
+            if "_event_celebration_" in db:
+                await send_custom_output(context, update.message.chat_id, db["_event_celebration_"], f"🎊 {message_counter}번째 당첨! 🎊")
+
+    # [4. 명령어 출력]
+    if text.startswith(('/', '!')):
+        cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
+        if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
+
+async def save_logic(m_id, chat_id, context):
+    await asyncio.sleep(2.0)
+    if m_id in media_group_cache:
+        target = media_group_cache[m_id]
+        cap = target["caption"]
+        if cap.startswith(("/personal", "/이벤트설정")):
+            is_event = cap.startswith("/이벤트설정")
+            parts = cap.split(maxsplit=2)
+            cmd_key = "_event_celebration_" if is_event else re.sub(r"^[ /!]+", "", parts[1]).strip()
+            content = parts[2] if len(parts) > 2 else (parts[1] if is_event and len(parts) > 1 else "")
+            msg_text, btn_text = content, ""
+            if "---" in content: msg_text, btn_text = content.rsplit("---", 1)
+            db[cmd_key] = {"photos": target["ids"], "caption": parse_premium_emojis(msg_text.strip(), target["entities"]), "buttons": btn_text.strip()}
+            await context.bot.send_message(chat_id=chat_id, text=f"✅ {'이벤트' if is_event else '['+cmd_key+']'} 등록 완료!")
+        del media_group_cache[m_id]
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id == ADMIN_ID and query.data.startswith("del_"):
+        cmd = query.data.replace("del_", "")
+        if cmd in db: del db[cmd]
+        await query.edit_message_text(f"🗑️ [{cmd}] 삭제 완료.")
 
 if __name__ == "__main__":
     if TOKEN:
         threading.Thread(target=run_flask, daemon=True).start()
         app = ApplicationBuilder().token(TOKEN).build()
-        
-        # 작동 확인된 이전 방식 그대로 유지
-        app.add_handler(MessageHandler(filters.TEXT, event))
-        
+        app.add_handler(MessageHandler(filters.ALL, handle_message))
+        app.add_handler(CallbackQueryHandler(handle_callback))
         app.run_polling()
