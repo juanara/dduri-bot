@@ -1,4 +1,4 @@
-import os, re, threading, asyncio, logging, random, html, json
+import os, re, threading, asyncio, logging, random, html, json, requests
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from flask import Flask
@@ -14,6 +14,7 @@ def run_flask():
 
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = 8472713103 
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY") # Render 환경변수에 등록하세요!
 
 DB_FILE = "database.json"
 
@@ -33,6 +34,28 @@ current_data = load_db()
 db = current_data.get("commands", {})
 message_counter = current_data.get("counter", 0)
 media_group_cache = {}
+
+# [실시간 날씨 가져오기 함수]
+async def get_realtime_weather(city_name="Suwon"):
+    if not WEATHER_API_KEY:
+        return "❌ 날씨 API 키가 설정되지 않았습니다. Render 환경변수를 확인해주세요."
+    try:
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang=kr"
+        response = requests.get(url)
+        data = response.json()
+        if data["cod"] == 200:
+            weather_desc = data["weather"][0]["description"]
+            temp, feels_like, humidity = data["main"]["temp"], data["main"]["feels_like"], data["main"]["humidity"]
+            icon = data["weather"][0]["icon"]
+            emoji = "☀️" if "01" in icon else "☁️" if "02" in icon or "03" in icon or "04" in icon else "🌧️" if "09" in icon or "10" in icon else "⚡" if "11" in icon else "❄️" if "13" in icon else "🌫️"
+            return (f"📍 <b>{city_name} 실시간 날씨</b> {emoji}\n\n"
+                    f"🌡️ <b>현재 기온:</b> {temp}°C\n"
+                    f"🤔 <b>체감 온도:</b> {feels_like}°C\n"
+                    f"💧 <b>현재 습도:</b> {humidity}%\n"
+                    f"📝 <b>날씨 상태:</b> {weather_desc}\n\n"
+                    f"✨ <i>조회 시간 기준 실시간 정보입니다.</i>")
+        return "❌ 도시를 찾을 수 없거나 API 활성화 대기 중입니다."
+    except: return "⚠️ 날씨 조회 중 오류가 발생했습니다."
 
 def get_weighted_dice():
     seed = random.random() * 100
@@ -71,29 +94,29 @@ async def send_custom_output(context, chat_id, data, title=""):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, message_counter, media_group_cache
     if not update.message: return
-    
-    uid = update.message.from_user.id
-    text = update.message.text or ""
+    uid, text = update.message.from_user.id, update.message.text or ""
     cap_html = update.message.caption_html or ""
     is_private = update.effective_chat.type == "private"
 
-    # --- [ 핵심 수정: "니노" 포함 모든 메시지에 스포일러 답장 ] ---
+    # [실시간 날씨 명령어]
+    if text.startswith("/날씨"):
+        parts = text.split()
+        city = parts[1] if len(parts) > 1 else "Suwon"
+        res = await get_realtime_weather(city)
+        return await update.message.reply_text(res, parse_mode="HTML")
+
+    # [니노 감시]
     if "니노" in text or "니노" in cap_html:
-        # 단, 봇이 스스로 보낸 메시지에는 반응하지 않도록 방지
         if not update.message.from_user.is_bot:
-            return await update.message.reply_text(
-                "<tg-spoiler>님 ㅇㅂ?..</tg-spoiler>",
-                parse_mode="HTML"
-            )
+            return await update.message.reply_text("<tg-spoiler>님 ㅇㅂ?..</tg-spoiler>", parse_mode="HTML")
 
     # [주사위]
     if text in ["/주사위", "!주사위"]:
-        res = get_weighted_dice()
+        res, name = get_weighted_dice(), html.escape(update.message.from_user.first_name)
         icon = "💎" if res >= 40000 else "🔥" if res >= 10000 else "🎲"
-        name = html.escape(update.message.from_user.first_name)
         return await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{res:,}</b>", parse_mode="HTML")
 
-    # [관리자 전용 - 1:1 대화 전용]
+    # [관리자 전용]
     if uid == ADMIN_ID and is_private:
         if text == "/카운트확인":
             return await update.message.reply_text(f"📊 현재 누적 카운트: <b>{message_counter}</b>", parse_mode="HTML")
@@ -105,27 +128,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not db: return await update.message.reply_text("❌ 데이터 없음")
             btns = [[InlineKeyboardButton(f"🗑️ {k} 삭제", callback_data=f"del_{k}")] for k in db.keys()]
             return await update.message.reply_text("📋 삭제 리스트:", reply_markup=InlineKeyboardMarkup(btns))
-
         if update.message.photo:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
-            if m_id not in media_group_cache:
-                media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
+            if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
             media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
-            if "/personal" in cap_html or "/이벤트설정" in cap_html:
-                media_group_cache[m_id]["caption"] = cap_html
+            if "/personal" in cap_html or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption"] = cap_html
             if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
             media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, update.message.chat_id, context))
             return
 
-    # [카운팅 - 그룹방만]
+    # [카운팅]
     if not is_private and not text.startswith(('/', '!')) and not cap_html.startswith('/'):
         message_counter += 1
         if message_counter % 100 == 0: save_db({"commands": db, "counter": message_counter})
         if message_counter > 0 and message_counter % 5000 == 0:
-            if "_event_celebration_" in db:
-                await send_custom_output(context, update.message.chat_id, db["_event_celebration_"], f"🎊 {message_counter}번째 당첨! 🎊")
+            if "_event_celebration_" in db: await send_custom_output(context, update.message.chat_id, db["_event_celebration_"], f"🎊 {message_counter}번째 당첨! 🎊")
 
-    # [명령어 출력]
+    # [커스텀 명령어]
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
@@ -134,24 +153,18 @@ async def save_logic(m_id, chat_id, context):
     global db, message_counter
     await asyncio.sleep(2.5)
     if m_id in media_group_cache:
-        target = media_group_cache[m_id]
-        raw_cap = target["caption"]
+        target, raw_cap = media_group_cache[m_id], media_group_cache[m_id]["caption"]
         try:
-            if "/이벤트설정" in raw_cap:
-                key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
+            if "/이벤트설정" in raw_cap: key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
             else:
-                # /personal 명령어와 키, 본문 분리
                 match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_cap, re.DOTALL)
-                if match:
-                    key, content = match.group(1), match.group(2)
-                else: throw # 형식 안맞으면 무시
-            
+                if match: key, content = match.group(1), match.group(2)
+                else: return
             msg, btn = content, ""
             if "---" in content: msg, btn = content.rsplit("---", 1)
-            btn = re.sub('<[^<]+?>', '', btn).strip()
-            db[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": btn}
+            db[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
             save_db({"commands": db, "counter": message_counter})
-            await context.bot.send_message(chat_id, f"✅ [{key}] 서식 포함 등록 완료!")
+            await context.bot.send_message(chat_id, f"✅ [{key}] 등록 완료!")
         except: pass
         del media_group_cache[m_id]
 
