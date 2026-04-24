@@ -68,6 +68,3 @@ if __name__ == "__main__":
     if TOKEN:
         threading.Thread(target=run_flask, daemon=True).start()
         app = ApplicationBuilder().token(TOKEN).build()
-        app.add_handler(CommandHandler("1", event))
-        app.add_handler(MessageHandler(filters.PHOTO, get_photo_id))
-        app.run_polling()
