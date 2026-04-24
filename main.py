@@ -68,7 +68,9 @@ if __name__ == "__main__":
         
         # 봇 실행
         app = ApplicationBuilder().token(TOKEN).build()
-        app.add_handler(CommandHandler("이벤트", event))
+        
+        # '이벤트' 대신 '1' 로 명령어 변경
+        app.add_handler(CommandHandler("1", event))
         
         print("뜌리봇 무료 모드 실행 중...")
         app.run_polling()
