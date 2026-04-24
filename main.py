@@ -21,13 +21,13 @@ async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    user_text = update.message.text.strip()
+    user_text = update.message.text
     
     # "/이벤트" 또는 "/1" 이 포함되어 있으면 발동
     if "/이벤트" in user_text or "/1" in user_text:
-        # 프리미엄 이모지 ID 적용 (하트와 표정)
-        heart = "<tg-emoji emoji-id='5219862119209520083'>💕</tg-emoji>"
-        face = "<tg-emoji emoji-id='5427161992811004191'>☺️</tg-emoji>"
+        # 이모지 ID 변수 설정
+        heart_emoji = "<tg-emoji emoji-id='5219862119209520083'>💕</tg-emoji>"
+        face_emoji = "<tg-emoji emoji-id='5427161992811004191'>☺️</tg-emoji>"
 
         event_caption = (
             "이벤트 문의는 아래 양식으로만 접수합니다.\n\n"
@@ -50,12 +50,11 @@ async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "참여금액 :\n"
             "이벤트내용 :\n\n"
             " 양식 미준수(예: “이벤트주세요”, “참여요” 등 간단 문의)는 접수 불가합니다. \n\n"
-            f" 반복 안내 후에도 양식 미준수 시 향후 이벤트 참여 제한이 있을 수 있으니 협조 부탁드립니다. {face}\n\n\n"
-            f"{heart}사이트 이벤트 = 사이트 고객센터\n"
-            f"{heart}가족방 이벤트 = 연합총장.SITE {heart}"
+            f" 반복 안내 후에도 양식 미준수 시 향후 이벤트 참여 제한이 있을 수 있으니 협조 부탁드립니다. {face_emoji}\n\n\n"
+            f"{heart_emoji}사이트 이벤트 = 사이트 고객센터\n"
+            f"{heart_emoji}가족방 이벤트 = 연합총장.SITE {heart_emoji}"
         )
         
-        # 사용자님의 사진 ID 7개 (기존 성공했던 ID들)
         media = [
             InputMediaPhoto("AgACAgUAAxkBAAMRaesMN3B7oN3YzpO1uPXxx7c_TNQAAn0PaxvK_FlXDpCkEHDNt5kBAAMCAAN5AAM7BA", caption=event_caption, parse_mode="HTML"),
             InputMediaPhoto("AgACAgUAAxkBAAMSaesMN7_uf8oG0cHblQWTUCh8ftQAAn4PaxvK_FlXFI0GlnCjyQgBAAMCAAN5AAM7BA"),
@@ -76,7 +75,7 @@ if __name__ == "__main__":
         threading.Thread(target=run_flask, daemon=True).start()
         app = ApplicationBuilder().token(TOKEN).build()
         
-        # 모든 텍스트 메시지를 감시하여 /이벤트 와 /1 에 반응
+        # 작동 확인된 이전 방식 그대로 유지
         app.add_handler(MessageHandler(filters.TEXT, event))
         
         app.run_polling()
