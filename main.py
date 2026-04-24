@@ -1,9 +1,10 @@
 from telegram import Update, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import os
 from flask import Flask
 import threading
 
+# Render 포트 체크용 가짜 웹 서버
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
@@ -17,6 +18,7 @@ def run_flask():
 TOKEN = os.getenv("TOKEN")
 
 async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ▼ 이 부분에 이모지를 복사해서 넣으시면 움직이는 이모지도 그대로 나옵니다!
     event_caption = (
         "이벤트 문의는 아래 양식으로만 접수합니다.\n\n"
         "양식에 맞추지 않고 작성한 문의건은 처리 불가하며, 앞으로 양식 미준수 건은 자동 참여불가 처리합니다.\n\n"
@@ -43,9 +45,9 @@ async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💕가족방 이벤트 = 연합총장.SITE 💕"
     )
     
-    # ★ 나중에 이 부분의 영어를 새로 받은 ID로 바꿔야 합니다! ★
+    # 사용자님이 방금 따오신 7개의 사진 ID입니다.
     media = [
-        InputMediaPhoto("AgACAgUAAxkBAAMRaesMN3B7oN3YzpO1uPXxx7c_TNQAAn0PaxvK_FlXDpCkEHDNt5kBAAMCAAN5AAM7BA", caption=event_caption),
+        InputMediaPhoto("AgACAgUAAxkBAAMRaesMN3B7oN3YzpO1uPXxx7c_TNQAAn0PaxvK_FlXDpCkEHDNt5kBAAMCAAN5AAM7BA", caption=event_caption, parse_mode="HTML"),
         InputMediaPhoto("AgACAgUAAxkBAAMSaesMN7_uf8oG0cHblQWTUCh8ftQAAn4PaxvK_FlXFI0GlnCjyQgBAAMCAAN5AAM7BA"),
         InputMediaPhoto("AgACAgUAAxkBAAMTaesMN7wqlQe0HY_Id-VIu-WVfiEAAn8PaxvK_FlXuKpKlA_IjnIBAAMCAAN5AAM7BA"),
         InputMediaPhoto("AgACAgUAAxkBAAMUaesMN60FX6XjnC99nHolHgRvSWEAAoAPaxvK_FlXAAGK-TvCzezgAQADAgADeQADOwQ"),
@@ -57,18 +59,16 @@ async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await update.message.reply_media_group(media)
     except Exception as e:
-        await update.message.reply_text("❌ 사진 ID가 옛날 것입니다! 채팅방에 사진을 올려 새 ID를 발급받으세요.")
-
-# 사진을 올리면 ID를 추출해주는 도우미 기능
-async def get_photo_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    file_id = update.message.photo[-1].file_id
-    await update.message.reply_text(f"{file_id}")
+        print(f"Error: {e}")
+        await update.message.reply_text("❌ 메시지 전송 중 에러가 발생했습니다.")
 
 if __name__ == "__main__":
     if TOKEN:
         threading.Thread(target=run_flask, daemon=True).start()
         app = ApplicationBuilder().token(TOKEN).build()
         
-        # ▼ 이 두 줄이 무조건 살아있어야 합니다! ▼
-        app.add_handler(CommandHandler("1", event))
+        # 명령어 /1 설정 (사진 ID 추출 기능은 뺐습니다!)
+        app.add_handler(CommandHandler("이벤트", event))
+        
+        print("뜌리봇 이모지 지원 모드 실행 중...")
         app.run_polling()
