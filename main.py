@@ -45,13 +45,13 @@ async def event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ★ 나중에 이 부분의 영어를 새로 받은 ID로 바꿔야 합니다! ★
     media = [
-        InputMediaPhoto("AAMCBQADGQEDCmM_aesGnHT0ask7yVmTxXnB6Xn1y_kAApobAAI2XFhXpj2CcTONJP4BAAdtAAM7BA", caption=event_caption),
-        InputMediaPhoto("AAMCBQADGQEDCmNAaesGnIAW3-pmeSScoCJxL432ZMEAApsbAAI2XFhXIGKgBn8d8IgBAAdtAAM7BA"),
-        InputMediaPhoto("AAMCBQADGQEDCmNBaesGnKx5XT8a8E8Ga2RUJa7F6qUAApwbAAI2XFhXtyweiMmGAzMBAAdtAAM7BA"),
-        InputMediaPhoto("AAMCBQADGQEDCmNEaesGnA2IEzOqZHOW0Rq_gLDDEEQAAp4bAAI2XFhXarAfDgUPRYABAAdtAAM7BA"),
-        InputMediaPhoto("AAMCBQADGQEDCmNCaesGnI3joyM55Ye_XK13JKnhEdAAAp0bAAI2XFhXOBuF4qvBraYBAAdtAAM7BA"),
-        InputMediaPhoto("AAMCBQADGQEDCmNFaesGnMUIsu7Fq3vgwk-kGtA8Gq4AAp8bAAI2XFhXx5RCEgxM-ZIBAAdtAAM7BA"),
-        InputMediaPhoto("AAMCBQADGQEDCmNHaesGnDm__uZofB5SJUc9bvL96TkAAqAbAAI2XFhXlfI9-oVRJBcBAAdtAAM7BA"),
+        InputMediaPhoto("AgACAgUAAxkBAAMRaesMN3B7oN3YzpO1uPXxx7c_TNQAAn0PaxvK_FlXDpCkEHDNt5kBAAMCAAN5AAM7BA", caption=event_caption),
+        InputMediaPhoto("AgACAgUAAxkBAAMSaesMN7_uf8oG0cHblQWTUCh8ftQAAn4PaxvK_FlXFI0GlnCjyQgBAAMCAAN5AAM7BA"),
+        InputMediaPhoto("AgACAgUAAxkBAAMTaesMN7wqlQe0HY_Id-VIu-WVfiEAAn8PaxvK_FlXuKpKlA_IjnIBAAMCAAN5AAM7BA"),
+        InputMediaPhoto("AgACAgUAAxkBAAMUaesMN60FX6XjnC99nHolHgRvSWEAAoAPaxvK_FlXAAGK-TvCzezgAQADAgADeQADOwQ"),
+        InputMediaPhoto("AgACAgUAAxkBAAMVaesMN_pU8B4jl2g6IUCnIthgHcsAAoEPaxvK_FlXZW0NWBXSj40BAAMCAAN5AAM7BA"),
+        InputMediaPhoto("AgACAgUAAxkBAAMWaesMNy5PWpPTvJyA61CztjglWcYAAoIPaxvK_FlX0gi06hvNXv0BAAMCAAN5AAM7BA"),
+        InputMediaPhoto("AgACAgUAAxkBAAMQaesMN9rfjcwJ8rnfK4c9S71_CEgAAnwPaxvK_FlX_tyL1jbI-yoBAAMCAAN5AAM7BA"),
     ]
     
     try:
