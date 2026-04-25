@@ -82,7 +82,7 @@ def get_lunch_recommendation():
     ]
     category, items = random.choice(menu_list)
     menu = random.choice(items)
-    comments = ["오늘 이거 먹으면 기분 최고! 🔥", "탁월한 선택이네요! 😋", "결정하기 힘들 땐 역시 이게 최고죠! ✨", "든든하게 드시고 기운 내세요! 💪"]
+    comments = ["오늘 이거 먹으면 기분 최고! 🔥", "탁월한 선택이네요! 맛있게 드세요. 😋", "결정하기 힘들 땐 역시 이게 최고죠! ✨", "든든하게 드시고 기운 내세요! 💪"]
     return (f"🍴 <b>오늘의 점심 추천</b>\n\n종류: <b>{category}</b>\n메뉴: <b>{menu}</b>\n\n💬 <i>{random.choice(comments)}</i>")
 
 # 6. 주사위 확률
@@ -158,7 +158,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(delete_messages_later(context, chat_id, msgs, 2.5))
             return 
 
-        # ⭐ [분부니/뷰니 찬양 (3초 삭제: 재생 2s + 대기 1s)] ⭐
+        # ⭐ [분부니/뷰니 찬양 (3초 삭제)] ⭐
         s_count = text.count('ㅅ')
         if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
             if "분부니" in text:
@@ -167,19 +167,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 congrats = ["뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑", "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀", "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥", "뷰코뷰코니 폼 미쳤다이!! 🥳"]
             
             bot_reply = await update.message.reply_text(random.choice(congrats), parse_mode="HTML")
-            
             sticker_msg = None
             if os.path.exists("1.webm"):
                 try:
                     with open("1.webm", "rb") as f: sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
                 except: pass
-                
             audio_msg = None
             if os.path.exists("1.ogg"):
                 try:
                     with open("1.ogg", "rb") as f: audio_msg = await context.bot.send_voice(chat_id=chat_id, voice=f)
                 except: pass
-            
             msgs = [update.message.message_id, bot_reply.message_id]
             if sticker_msg: msgs.append(sticker_msg.message_id)
             if audio_msg: msgs.append(audio_msg.message_id)
@@ -196,14 +193,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(random.choice(mz_congrats), parse_mode="HTML")
             return
 
-    # [점메추 / 날씨 / 주사위 / 명령어 / 카운팅 - 기존과 동일]
+    # [점메추]
     if text.startswith("/점메추"):
         return await update.message.reply_text(get_lunch_recommendation(), parse_mode="HTML")
+
+    # ⭐ [실시간 날씨 - 5초 뒤 명령어와 답변 동시 삭제] ⭐
     if text.startswith("/날씨"):
         parts = text.split()
         city = parts[1] if len(parts) > 1 else "수원"
         res = await get_realtime_weather(city)
-        return await update.message.reply_text(res, parse_mode="HTML")
+        bot_reply = await update.message.reply_text(res, parse_mode="HTML")
+        
+        # 유저가 친 명령어(update.message.message_id)와 봇의 답변(bot_reply.message_id)을 5초 뒤 삭제
+        msgs_to_del = [update.message.message_id, bot_reply.message_id]
+        asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_del, 5.0))
+        return
+
+    # [주사위 / 관리자 기능 / 카운팅 / 명령어 실행 - 기존과 동일]
     if text in ["/주사위", "!주사위"]:
         res, name = get_weighted_dice(), html.escape(update.message.from_user.first_name)
         icon = "💎" if res >= 40000 else "🔥" if res >= 10000 else "🎲"
