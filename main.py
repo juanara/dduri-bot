@@ -150,7 +150,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return await update.message.reply_text(f"📋 <b>소통 VIP 회원수 (총 {len(members)}명)</b>\n\n{body}", parse_mode="HTML")
 
         # [필터링] 하우돈 변형어 검거 (2.5초 삭제)
-        bad_words = ["니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하마을", "봉하"]
+        bad_words = ["니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "봉하"]
         if any(w in text for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
             s_msg = None
@@ -168,9 +168,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "대여왕 강림!!! 👑 ㅅㅅㅅㅅ",
                 "여왕님 폼 미쳤다!! 🙇‍♂️ 충성충성",
                 "역시 우리 여왕님 클라스!! 👸 빛이 난다...",
-                "세상을 지배하는 미모!! 👑 찬양하라!!",
-                "분부니 뷰니 여왕님 만세!! 🔥 압도적 감사!!",
-                "이것이 바로 여왕의 품격... 👑 ㅅㅅㅅㅅ"
+                "세상을 지배하는 뷰모(대충 뷰누나 미모라는뜻)!! 👑 찬양하라!!",
+                "분부니 킹갓제네럴 뷰니 여왕님 만세!! 🔥 압도적 감사!!",
+                "이것이 바로 뷰여왕의 품격... 👑 ㅅㅅㅅㅅ"
             ]
             rep = await update.message.reply_text(random.choice(queen_mentions), parse_mode="HTML")
             s_msg, a_msg = None, None
