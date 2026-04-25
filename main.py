@@ -78,7 +78,53 @@ async def get_realtime_weather(city_input="수원"):
     except:
         return "⚠️ 날씨 서버 연결 오류가 발생했습니다."
 
-# 5. 주사위 확률 로직 (최대 50,000)
+# 5. 점심 메뉴 추천 함수 (메뉴 대폭 추가)
+def get_lunch_recommendation():
+    menu_list = [
+        ("한식 🍚", [
+            "김치찌개와 계란말이", "제육볶음과 쌈밥", "뜨끈한 순대국밥", "뼈해장국", "비빔밥과 된장찌개", 
+            "부대찌개", "갈비탕", "매콤한 낙지덮밥", "육회비빔밥", "닭갈비", "보쌈정식", 
+            "청국장", "순두부찌개", "고등어구이 정식", "불고기 백반", "콩나물국밥", "수제비와 겉절이"
+        ]),
+        ("중식 🍜", [
+            "짜장면과 군만두", "해물짬뽕", "마라탕과 꿔바로우", "볶음밥", "잡채밥", 
+            "마파두부 덮밥", "탕수육 정식", "유산슬밥", "고추잡채", "차돌짬뽕", "간짜장"
+        ]),
+        ("일식 🍣", [
+            "바삭한 로스카츠", "치즈카츠", "신선한 모듬초밥", "사케동(연어덮밥)", "가츠동", 
+            "규동(소고기덮밥)", "냉모밀과 유부초밥", "돈코츠 라멘", "미소 라멘", "회덮밥", 
+            "텐동(모듬튀김덮밥)", "우동과 새우튀김"
+        ]),
+        ("양식 🍕", [
+            "수제 치즈버거", "베이컨 크림 파스타", "매콤한 토마토 파스타", "페퍼로니 피자", 
+            "안심 스테이크", "치킨 리조또", "봉골레 파스타", "오므라이스", "에그 베네딕트"
+        ]),
+        ("아시안/기타 🍲", [
+            "소고기 쌀국수", "팟타이", "나시고랭", "인도식 커리와 난", "탄두리 치킨", 
+            "분짜", "똠양꿍", "멕시칸 타코", "부리또"
+        ]),
+        ("분식/가벼운 식사 🥪", [
+            "떡볶이와 모듬튀김", "치즈 김밥과 라면", "돈까스 김밥 반줄 세트", "비빔국수", 
+            "잔치국수", "신선한 연어 샐러드", "클럽 샌드위치", "이삭토스트", "서브웨이 꿀조합"
+        ])
+    ]
+    category, items = random.choice(menu_list)
+    menu = random.choice(items)
+    
+    comments = [
+        "오늘 이거 먹으면 기분 최고! 🔥",
+        "탁월한 선택이네요! 맛있게 드세요. 😋",
+        "결정하기 힘들 땐 역시 이게 최고죠! ✨",
+        "든든하게 드시고 기운 내세요! 💪",
+        "오늘은 왠지 이게 땡기는 날이네요! 🍀"
+    ]
+    
+    return (f"🍴 <b>오늘의 점심 추천</b>\n\n"
+            f"종류: <b>{category}</b>\n"
+            f"메뉴: <b>{menu}</b>\n\n"
+            f"💬 <i>{random.choice(comments)}</i>")
+
+# 6. 주사위 확률 로직
 def get_weighted_dice():
     seed = random.random() * 100
     if seed < 0.1: return random.randrange(40000, 50001, 500)
@@ -87,7 +133,7 @@ def get_weighted_dice():
     elif seed < 8.1: return random.randrange(5000, 10000, 500)
     else: return random.randrange(500, 5000, 500)
 
-# 6. 버튼 생성 로직
+# 7. 버튼 생성 로직
 def build_button_markup(button_data):
     if not button_data: return None
     keyboard = []
@@ -97,7 +143,7 @@ def build_button_markup(button_data):
         if row: keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
-# 7. 출력 전송 함수
+# 8. 출력 전송 함수
 async def send_custom_output(context, chat_id, data, title=""):
     try:
         photos, caption = data["photos"], f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
@@ -116,7 +162,7 @@ async def send_custom_output(context, chat_id, data, title=""):
             await context.bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="HTML")
     except Exception as e: logging.error(f"전송 에러: {e}")
 
-# 8. 메인 메시지 핸들러
+# 9. 메인 메시지 핸들러
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, message_counter, media_group_cache
     if not update.message: return
@@ -125,6 +171,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     cap_html = update.message.caption_html or ""
     is_private = update.effective_chat.type == "private"
+
+    # [점메추]
+    if text.startswith("/점메추"):
+        res = get_lunch_recommendation()
+        return await update.message.reply_text(res, parse_mode="HTML")
 
     # [실시간 날씨]
     if text.startswith("/날씨"):
@@ -158,12 +209,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             btns = [[InlineKeyboardButton(f"🗑️ {k} 삭제", callback_data=f"del_{k}")] for k in db.keys()]
             return await update.message.reply_text("📋 삭제 리스트:", reply_markup=InlineKeyboardMarkup(btns))
         
-        # 명령어 등록 (사진 포함)
+        # 명령어 등록 (대소문자 무시 기능 추가)
         if update.message.photo:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
             if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
             media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
-            if "/personal" in cap_html or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption"] = cap_html
+            if "/personal" in cap_html.lower() or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption"] = cap_html
             if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
             media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, update.message.chat_id, context))
             return
@@ -181,7 +232,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
 
-# 9. 명령어 저장 로직 (HTML 서식 유지)
+# 10. 명령어 저장 로직 (대소문자 무시 추가)
 async def save_logic(m_id, chat_id, context):
     global db, message_counter
     await asyncio.sleep(2.5)
@@ -191,7 +242,8 @@ async def save_logic(m_id, chat_id, context):
             if "/이벤트설정" in raw_cap:
                 key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
             else:
-                match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_cap, re.DOTALL)
+                # 대소문자 무관 정규식 (IGNORECASE)
+                match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_cap, re.IGNORECASE | re.DOTALL)
                 if match: key, content = match.group(1), match.group(2)
                 else: return
             
@@ -207,7 +259,7 @@ async def save_logic(m_id, chat_id, context):
             logging.error(f"저장 에러: {e}")
         del media_group_cache[m_id]
 
-# 10. 콜백 핸들러 (삭제 기능)
+# 11. 콜백 핸들러 (삭제 기능)
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, message_counter
     query = update.callback_query
@@ -218,7 +270,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_db({"commands": db, "counter": message_counter})
             await query.edit_message_text(f"🗑️ [{cmd}] 삭제 완료.")
 
-# 11. 실행
+# 12. 실행
 if __name__ == "__main__":
     if TOKEN:
         threading.Thread(target=run_flask, daemon=True).start()
