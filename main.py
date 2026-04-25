@@ -78,10 +78,46 @@ async def get_realtime_weather(city_input="수원"):
         return "❌ 지역 찾기 실패"
     except: return "⚠️ 오류"
 
-# 5. 메뉴 추천 로직
+# 5. 메뉴/커피 추천 로직 (요청 사항 반영 ⭐)
 def get_menu_recommendation(command):
-    menus = ["제육볶음", "돈까스", "짜장면", "삼겹살", "치킨", "초밥", "쌀국수", "텐동"]
-    return f"🍴 <b>추천 메뉴</b>: <b>{random.choice(menus)}</b>"
+    # 스타벅스 Top 30 리스트
+    starbucks_30 = [
+        "아이스 아메리카노", "카페 라떼", "자몽 허니 블랙 티", "돌체 라떼", "콜드 브루",
+        "바닐라 크림 콜드 브루", "자바 칩 프라푸치노", "쿨 라임 피지오", "화이트 초콜릿 모카", "카라멜 마키아또",
+        "제주 유기농 말차 라떼", "민트 초콜릿 칩 블렌디드", "더블 에스프레소 칩 프라푸치노", "에스프레소 프라푸치노", "바닐라 플랫 화이트",
+        "카페 모카", "카푸치노", "얼 그레이 티 라떼", "블랙 티 레모네이드 피지오", "핑크 드링크 위드 딸기 아사이",
+        "딸기 아사이 레모네이드", "망고 패션 티 블렌디드", "유자 패션 피지오", "돌체 블랙 밀크 티", "차이 티 라떼",
+        "블론드 바닐라 더블 샷 마키아또", "클래식 밀크 티", "피스타치오 크림 콜드 브루", "오늘의 커피", "바닐라 더블 샷"
+    ]
+    # 아침 메뉴 30선
+    breakfast_30 = [
+        "토스트", "북어국", "맥모닝", "전복죽", "시리얼", "에그드랍", "샌드위치", "사과와 요거트", "누룽지", "김밥",
+        "프렌치 토스트", "콩나물국밥", "바나나", "베이글", "순두부찌개", "단호박죽", "샐러드", "소고기무국", "주먹밥", "미역국",
+        "잉글리쉬 머핀", "시금치된장국", "가래떡 구이", "찐고구마", "스크램블 에그", "감자스프", "블루베리 베이글", "누드김밥", "누룽지탕", "떡국"
+    ]
+    # 점심 메뉴 30선
+    lunch_30 = [
+        "김치찌개", "된장찌개", "비빔밥", "돈까스", "짜장면", "짬뽕", "제육볶음", "육개장", "칼국수", "수제비",
+        "냉면", "쌀국수", "파스타", "규동", "가츠동", "회덮밥", "부대찌개", "뚝배기불고기", "함박스테이크", "오므라이스",
+        "잔치국수", "텐동", "라멘", "마라탕", "떡볶이", "버거킹", "포케", "초밥", "카레", "고등어구이"
+    ]
+    # 저녁 메뉴 30선
+    dinner_30 = [
+        "삼겹살", "치킨", "소곱창", "족발", "보쌈", "소갈비", "회", "매운탕", "아구찜", "감자탕",
+        "샤브샤브", "양꼬치", "피자", "스테이크", "파스타", "닭갈비", "곱창전골", "조개구이", "해물찜", "찜닭",
+        "낙지볶음", "쪽갈비", "양념게장", "보리굴비", "월남쌈", "닭발", "파전과 막걸리", "골뱅이무침", "소고기등심", "대게찜"
+    ]
+
+    if "/커추" in command:
+        return f"☕️ <b>스타벅스 Top 30 추천</b>: <b>{random.choice(starbucks_30)}</b>"
+    elif "/아메추" in command:
+        return f"🌅 <b>오늘의 아침 추천</b>: <b>{random.choice(breakfast_30)}</b>"
+    elif "/점메추" in command:
+        return f"🍴 <b>오늘의 점심 추천</b>: <b>{random.choice(lunch_30)}</b>"
+    elif "/저메추" in command:
+        return f"🍻 <b>오늘의 저녁 추천</b>: <b>{random.choice(dinner_30)}</b>"
+    else:
+        return f"🍴 <b>추천 메뉴</b>: <b>{random.choice(lunch_30)}</b>"
 
 # 6. 주사위 가중치
 def get_weighted_dice():
@@ -110,7 +146,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = html.escape(update.message.from_user.first_name)
     is_private = update.effective_chat.type == "private"
 
-    # [수집] 룸 정보 및 멤버 저장
     if not is_private and not update.message.from_user.is_bot:
         save_member(chat_id, uid, name, chat_title)
     if update.message.entities:
@@ -118,7 +153,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if entity.type == "text_mention":
                 save_member(chat_id, entity.user.id, html.escape(entity.user.first_name), chat_title)
 
-    # [카운팅] 일반 대화 카운트 (Privacy Mode 비활성화 필수)
     if not is_private and not text.startswith(('/', '!')) and not cap_html.startswith('/') and not update.message.from_user.is_bot:
         message_counter += 1
         if message_counter % 20 == 0:
@@ -128,11 +162,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_auth = await is_authorized(update, context)
 
         if is_auth:
-            # 카운트 확인
             if text_lower == "/카운트확인":
                 return await update.message.reply_text(f"📊 현재 누적 카운트: <b>{message_counter:,}</b>", parse_mode="HTML")
 
-            # 전체 멘션 (10인 분할)
             if text_lower.startswith(("/all", "/전체공지", "/전체멘션")):
                 members = get_members(chat_id)
                 if not members: return await update.message.reply_text("❌ 등록 멤버 없음")
@@ -144,7 +176,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(0.5)
                 return
 
-            # 리스트 확인
             if text_lower == "/리스트":
                 if is_private:
                     all_rooms = col_members.find()
@@ -173,10 +204,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # [리액션] 여왕님 찬양 (3초 삭제)
         s_count = text.count('ㅅ')
         if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
-            queen_mentions = [
-                "대여왕 강림!!! 👑 ㅅㅅㅅㅅ", "여왕님 폼 미쳤다!! 🙇‍♂️ 충성충성",
-                "역시 우리 여왕님 클라스!! 👸 빛이 난다...", "세상을 지배하는 뷰모!! 👑 찬양하라!!"
-            ]
+            queen_mentions = ["대여왕 강림!!! 👑 ㅅㅅㅅㅅ", "여왕님 폼 미쳤다!! 🙇‍♂️ 충성충성", "역시 우리 여왕님 클라스!! 👸", "세상을 지배하는 뷰모!! 👑 찬양하라!!"]
             rep = await update.message.reply_text(random.choice(queen_mentions), parse_mode="HTML")
             s_msg, a_msg = None, None
             if os.path.exists("1.webm"):
@@ -192,24 +220,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None), (a_msg.message_id if a_msg else None)], 3.0))
             return
 
-        # [리액션] 가속 멘트
         elif s_count >= 9 or text.count('ㅆ') >= 9:
             accel_mentions = ["개나이스! 앙 기모링~~ 🔥", "속도 미쳤다!! 가즈아아아아!! 🚀", "미친 텐션!! 오늘 분위기 럭키비키잖아!! ✨"]
             return await update.message.reply_text(random.choice(accel_mentions))
 
-    # 메뉴/날씨 추천 (5초 삭제)
+    # 메뉴/날씨 추천 (5초 삭제) ⭐
     if any(text_lower.startswith(c) for c in ["/아메추", "/점메추", "/저메추", "/커추", "/간추", "/날씨"]):
         res = await get_realtime_weather(text.split()[1]) if text_lower.startswith("/날씨") and len(text.split()) > 1 else (await get_realtime_weather("수원") if text_lower.startswith("/날씨") else get_menu_recommendation(text_lower))
         rep = await update.message.reply_text(res, parse_mode="HTML")
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 5.0))
         return
 
-    # [주사위] (10초 뒤 삭제 ⭐)
+    # [주사위] (10초 뒤 삭제)
     if text in ["/주사위", "!주사위"]:
         res = get_weighted_dice()
         icon = "💎" if res >= 40000 else "🔥" if res >= 10000 else "🎲"
         rep = await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{res:,}</b>", parse_mode="HTML")
-        # 10초 뒤 [사용자 명령어, 봇 응답] 세트로 삭제
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 10.0))
         return
 
