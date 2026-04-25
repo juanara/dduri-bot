@@ -59,30 +59,18 @@ async def get_realtime_weather(city_input="수원"):
         return "❌ 지역을 찾을 수 없습니다."
     except: return "⚠️ 날씨 서버 연결 오류"
 
-# 5. 메뉴 추천 로직 (아메추, 점메추, 저메추, 커추, 간추)
+# 5. 메뉴 추천 로직
 def get_menu_recommendation(command):
-    # 아침 메뉴 30선
     morning = ["전복죽", "계란 토스트", "시리얼", "에그 베네딕트", "과일 샐러드", "단호박 스프", "그릭 요거트", "편의점 주먹밥", "누룽지탕", "베이글과 크림치즈", "스크램블 에그", "바나나 한 개", "모닝 샌드위치", "순두부 한 그릇", "미역국 백반", "프렌치 토스트", "야채 호빵", "콩나물국밥", "닭가슴살 쉐이크", "팬케이크", "새우 완탕", "딤섬", "구운 계란과 우유", "연어 오픈 샌드위치", "시금치 프리타타", "김가루 주먹밥", "블루베리 머핀", "따뜻한 두유", "아침 보리밥", "브런치 플래터"]
-    
-    # 저녁 메뉴 30선
     dinner = ["삼겹살에 소주", "치킨과 맥주", "페퍼로니 피자", "모듬 회와 매운탕", "소곱창 구이", "불족발", "해물 파스타", "립아이 스테이크", "소고기 샤브샤브", "매콤 닭볶음탕", "간장 갈비찜", "김치찜과 두부", "골뱅이 소면", "모듬 초밥", "감자탕", "감바스와 바게트", "곱창전골", "한우 등심구이", "찜닭", "양꼬치와 칭따오", "보쌈 정식", "물회", "쭈꾸미 볶음", "LA 갈비", "해물찜", "스키야키", "훈제 오리 구이", "낙곱새", "등갈비찜", "매운 당면 떡볶이"]
-    
-    # 커피 (스타벅스 실제 메뉴 리스트)
     coffee = ["카페 아메리카노", "카페 라떼", "돌체 라떼", "카라멜 마끼아또", "자바 칩 프라푸치노", "쿨 라임 피지오", "자몽 허니 블랙 티", "핑크 드링크 에이드", "에스프레소 프라푸치노", "제주 말차 라떼", "바닐라 플랫 화이트", "콜드 브루", "돌체 콜드 브루", "민트 초콜릿 칩 블렌디드", "딸기 딜라이트 요거트", "화이트 초콜릿 모카", "카푸치노", "시그니처 핫 초콜릿", "더블 에스프레소 칩 프라푸치노", "얼 그레이 티 라떼", "차이 티 라떼", "망고 바나나 블렌디드", "유스베리 티", "브렉퍼스트 블렌드 블랙 티", "허니 자몽 블랙 티 에이드", "블랙 글레이즈드 라떼", "바닐라 크림 콜드 브루", "슈크림 라떼", "피치 딸기 피지오", "망고 패션 티 블렌디드"]
-    
-    # 간식 30선
     snack = ["시장 떡볶이", "핫도그", "바삭한 크로플", "츄러스", "뚱카롱", "호도과자", "에그타르트", "육포와 땅콩", "버터구이 오징어", "초코칩 쿠키", "소프트 아이스크림", "계절 과일", "군고구마", "군밤", "포테이토 칩", "찐옥수수", "닭강정", "회오리 감자", "소떡소떡", "붕어빵", "호떡", "꽈배기", "나초와 치즈딥", "팝콘", "치즈볼", "구운 쥐포", "요거트 아이스크림", "단팥빵", "생크림 케이크", "에너지바"]
 
-    if "/아메추" in command: 
-        res, cat = random.choice(morning), "아침 ☀️"
-    elif "/저메추" in command: 
-        res, cat = random.choice(dinner), "저녁 🌙"
-    elif "/커추" in command: 
-        res, cat = random.choice(coffee), "스타벅스 ☕"
-    elif "/간추" in command: 
-        res, cat = random.choice(snack), "간식 🥨"
-    else: # 점메추
-        res, cat = random.choice(["제육볶음", "김치찌개", "돈까스", "짜장면", "쌀국수", "샌드위치", "텐동", "덮밥", "라멘", "초밥"]), "점심 🍴"
+    if "/아메추" in command: res, cat = random.choice(morning), "아침 ☀️"
+    elif "/저메추" in command: res, cat = random.choice(dinner), "저녁 🌙"
+    elif "/커추" in command: res, cat = random.choice(coffee), "스타벅스 ☕"
+    elif "/간추" in command: res, cat = random.choice(snack), "간식 🥨"
+    else: res, cat = random.choice(["제육볶음", "김치찌개", "돈까스", "짜장면", "쌀국수", "샌드위치", "텐동", "덮밥", "라멘", "초밥"]), "점심 🍴"
     
     comments = ["오늘 이거 먹으면 기분 최고! 🔥", "탁월한 선택이네요! 😋", "결정하기 힘들 땐 역시 이게 최고죠! ✨", "든든하게 드시고 기운 내세요! 💪"]
     return f"🍴 <b>{cat} 추천</b>\n\n추천 메뉴: <b>{res}</b>\n\n💬 <i>{random.choice(comments)}</i>"
@@ -177,10 +165,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif s_count >= 9 or text.count('ㅆ') >= 9:
             return await update.message.reply_text("개나이스! 앙 기모링~~ 폼 미쳤다이! 🔥", parse_mode="HTML")
 
-    # [신규 추천 기능]
+    # [메뉴 추천 기능 - 5초 뒤 명령어와 답변 동시 삭제 ⭐]
     menu_cmds = ["/아메추", "/점메추", "/저메추", "/커추", "/간추"]
     if any(text.startswith(c) for c in menu_cmds):
-        return await update.message.reply_text(get_menu_recommendation(text), parse_mode="HTML")
+        res_text = get_menu_recommendation(text)
+        bot_reply = await update.message.reply_text(res_text, parse_mode="HTML")
+        asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, bot_reply.message_id], 5.0))
+        return
 
     # [날씨 - 5초 뒤 자동 삭제]
     if text.startswith("/날씨"):
@@ -191,13 +182,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, bot_reply.message_id], 5.0))
         return
 
-    # 주사위
+    # 주사위 / 관리자 / 카운팅 등 기존 로직 유지
     if text in ["/주사위", "!주사위"]:
         res, name = get_weighted_dice(), html.escape(update.message.from_user.first_name)
         icon = "💎" if res >= 40000 else "🔥" if res >= 10000 else "🎲"
         return await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{res:,}</b>", parse_mode="HTML")
 
-    # 관리자 기능
     if uid == ADMIN_ID and is_private:
         if text == "/카운트확인": return await update.message.reply_text(f"📊 카운트: <b>{message_counter}</b>", parse_mode="HTML")
         if text == "/카운트리로드":
@@ -216,14 +206,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, update.message.chat_id, context))
             return
 
-    # 카운팅
     if not is_private and not text.startswith(('/', '!')) and not cap_html.startswith('/'):
         message_counter += 1
         if message_counter % 100 == 0: save_db({"commands": db, "counter": message_counter})
         if message_counter > 0 and message_counter % 5000 == 0:
             if "_event_celebration_" in db: await send_custom_output(context, update.message.chat_id, db["_event_celebration_"], f"🎊 {message_counter}번째 당첨! 🎊")
 
-    # 사용자 명령어
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
