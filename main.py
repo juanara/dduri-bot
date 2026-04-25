@@ -88,7 +88,7 @@ def get_menu_recommendation(command):
     comments = ["최고의 선택! 😋", "이거 먹으면 기분 좋아짐! 🔥", "결정장애 해결사! ✨"]
     return f"🍴 <b>{cat} 추천</b>\n\n추천 메뉴: <b>{res}</b>\n\n💬 <i>{random.choice(comments)}</i>"
 
-# 6. 주사위 가중치 (기존 로직 유지)
+# 6. 주사위 가중치
 def get_weighted_dice():
     seed = random.random() * 100
     if seed < 0.1: return random.randrange(40000, 50001, 500)
@@ -120,7 +120,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # [수집] 사용자님이 태그한 사람 강제 낚시 등록 ⭐
     if update.message.entities:
         for entity in update.message.entities:
-            if entity.type == "text_mention": # 파란색 이름 클릭 멘션
+            if entity.type == "text_mention":
                 target = entity.user
                 save_member(chat_id, target.id, html.escape(target.first_name))
 
@@ -145,7 +145,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chunk = m_list[i:i+10]
                 mentions = [f"<a href='tg://user?id={mid}'>{mname}</a>" for mid, mname in chunk]
                 await context.bot.send_message(chat_id, f"📢 <b>전체 소집 ({i//10 + 1}팀)</b>\n" + " ".join(mentions), parse_mode="HTML")
-                await asyncio.sleep(0.5) # 도배 방지 대기
+                await asyncio.sleep(0.5)
             return
 
         # 분부니/뷰니 찬양 (3초 삭제)
@@ -180,38 +180,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 5.0))
         return
 
-    # 주사위
+    # [기능] 주사위
     if text in ["/주사위", "!주사위"]:
         res = get_weighted_dice()
         icon = "💎" if res >= 40000 else "🔥" if res >= 10000 else "🎲"
         return await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{res:,}</b>", parse_mode="HTML")
 
-    # 관리자 기능
-    if uid == ADMIN_ID and is_private:
-        # [관리자 전용] 리스트 명부 확인 ⭐
+    # [관리자 기능 - 요청하신 수정본 반영 ⭐]
+    if uid == ADMIN_ID:
+        # 1. 리스트 명부 확인 (어디서든 가능)
         if text == "/리스트":
             members = get_members(chat_id)
-            if not members: return await update.message.reply_text("📉 데이터 없음")
+            if not members: 
+                return await update.message.reply_text(f"📉 이 방({chat_id})은 아직 수집된 데이터가 없습니다.\n\n태그 낚시(@이름클릭)를 먼저 한 번 해주세요!")
+            
             body = "\n".join([f"{i+1}. {mname} (<code>{mid}</code>)" for i, (mid, mname) in enumerate(members.items())])
-            return await update.message.reply_text(f"📋 <b>등록 멤버 (총 {len(members)}명)</b>\n\n{body}", parse_mode="HTML")
+            return await update.message.reply_text(f"📋 <b>현재 방 등록 멤버 (총 {len(members)}명)</b>\n\n{body}", parse_mode="HTML")
         
-        if text == "/카운트확인": return await update.message.reply_text(f"📊 카운트: {message_counter}")
-        if text == "/카운트리로드":
-            message_counter = 0
-            save_bot_data(db_commands, message_counter)
-            return await update.message.reply_text("🔢 초기화 완료")
-        
-        # 커스텀 명령어 등록 로직
-        if update.message.photo:
-            m_id = update.message.media_group_id or f"s_{update.message.message_id}"
-            if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
-            media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
-            if "/personal" in cap_html.lower() or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption"] = cap_html
-            if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
-            media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, chat_id, context))
-            return
+        # 2. 기타 관리자 기능 (개인 DM에서만 깔끔하게 처리)
+        if is_private:
+            if text == "/카운트확인": return await update.message.reply_text(f"📊 카운트: {message_counter}")
+            if text == "/카운트리로드":
+                message_counter = 0
+                save_bot_data(db_commands, message_counter)
+                return await update.message.reply_text("🔢 초기화 완료")
+            
+            # 커스텀 명령어 등록 로직
+            if update.message.photo:
+                m_id = update.message.media_group_id or f"s_{update.message.message_id}"
+                if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
+                media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
+                if "/personal" in cap_html.lower() or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption"] = cap_html
+                if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
+                media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, chat_id, context))
+                return
 
-    # 카운팅 (50회마다 영구 저장)
+    # 카운팅 및 이벤트 (50회마다 영구 저장)
     if not is_private and not text.startswith(('/', '!')) and not cap_html.startswith('/'):
         message_counter += 1
         if message_counter % 50 == 0: save_bot_data(db_commands, message_counter)
