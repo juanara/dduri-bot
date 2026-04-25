@@ -142,7 +142,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if not update.message.from_user.is_bot:
-        # ⭐ [하우돈 검거 시 스포일러 + 랜덤 스티커 발송 후 모두 삭제] ⭐
+        # ⭐ [하우돈 검거 로직 (2.5초 뒤 삭제)] ⭐
         banned_words = ["니노", "노무현", "무현", "노무"]
         if any(word in text for word in banned_words) or any(word in cap_html for word in banned_words):
             hawoodon_responses = [
@@ -157,7 +157,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_text = f"<tg-spoiler>{random.choice(hawoodon_responses)}</tg-spoiler>"
             bot_reply = await update.message.reply_text(reply_text, parse_mode="HTML")
             
-            # 스티커 발송 (2.webm, 2.webp, 3.webp 중 랜덤 선택)
             sticker_msg = None
             udon_stickers = ["2.webm", "2.webp", "3.webp"]
             chosen_sticker = random.choice(udon_stickers)
@@ -168,47 +167,65 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
                 except Exception as e: logging.error(f"스티커 에러: {e}")
 
-            # 2.5초 뒤 삭제할 메시지 목록
             msgs_to_delete = [update.message.message_id, bot_reply.message_id]
             if sticker_msg: msgs_to_delete.append(sticker_msg.message_id)
             
             asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_delete, 2.5))
             return 
 
-        # ⭐ [MZ 환호성 맞춤형 리액션 + 1.webm 및 1.mp4 발송 기능] ⭐
+        # ⭐ [분부니/뷰니 음성 지원 및 3초 뒤 모두 삭제 (2초 재생 + 1초 대기)] ⭐
         s_count = text.count('ㅅ')
         if "분부니" in text and s_count >= 6:
             bunbuni_congrats = ["대여왕 분부니 강림!!! ㅅㅅㅅㅅ 폼 미쳤다이! 👑", "킹왕짱 분부니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 👸", "분부니 폼 도라방스;; 완전 럭키비키잔앙~ 🍀", "갓부니 찬양하라!! 오늘 텐션 개찢었네 ㅅㅅㅅ 🔥", "분부니 여왕님 나이스샷~!! 축하드립니당 🥳", "크~ 역시 대여왕 클라스! 지려버렸고~ 🚀", "분부니 기모띠~~ 오늘 저녁은 소고기 가즈아 🥩", "빛부니 ㄷㄷ 진짜 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 💯", "분부니 여왕님 폼 미쳤다!! 앙 기모링~~ 👑", "와 찢었다;; 분부니 레전드 갱신 ㅊㅋㅊㅋ 🎉"]
-            await update.message.reply_text(random.choice(bunbuni_congrats), parse_mode="HTML")
+            bot_reply = await update.message.reply_text(random.choice(bunbuni_congrats), parse_mode="HTML")
             
-            # 1.webm 스티커 보내기
+            sticker_msg = None
             if os.path.exists("1.webm"):
                 try:
-                    with open("1.webm", "rb") as f: await context.bot.send_sticker(chat_id=chat_id, sticker=f)
+                    with open("1.webm", "rb") as f: sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
                 except: pass
                 
-            # 1.mp4 영상/음성 보내기
-            if os.path.exists("1.mp4"):
+            audio_msg = None
+            if os.path.exists("1.ogg"):
                 try:
-                    with open("1.mp4", "rb") as f: await context.bot.send_video(chat_id=chat_id, video=f)
+                    with open("1.ogg", "rb") as f: audio_msg = await context.bot.send_voice(chat_id=chat_id, voice=f)
                 except: pass
+            elif os.path.exists("1.mp3"):
+                try:
+                    with open("1.mp3", "rb") as f: audio_msg = await context.bot.send_audio(chat_id=chat_id, audio=f)
+                except: pass
+            
+            # 오디오 듣는 시간 2초 + 대기 1초 = 3.0초 후 삭제
+            msgs_to_delete = [update.message.message_id, bot_reply.message_id]
+            if sticker_msg: msgs_to_delete.append(sticker_msg.message_id)
+            if audio_msg: msgs_to_delete.append(audio_msg.message_id)
+            asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_delete, 3.0))
             return
 
         elif "뷰니" in text and s_count >= 5:
             vyuni_congrats = ["뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑", "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀", "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥", "뷰니 여왕님 나이스!! 앙 기모링~~ 👸", "캬~ 역시 뷰니 클라스! 지려버렸고~ 🚀", "뷰코뷰코니 폼 미쳤다이!! 축하드립니당 🥳", "뷰니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 💯", "빛뷰니 ㄷㄷ 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 🎉", "뷰니 폼 미쳤다!! 오늘 저녁은 소고기 가즈아 🥩", "와 찢었다;; 뷰니 여왕님 레전드 갱신 ㅊㅋㅊㅋ 👑"]
-            await update.message.reply_text(random.choice(vyuni_congrats), parse_mode="HTML")
+            bot_reply = await update.message.reply_text(random.choice(vyuni_congrats), parse_mode="HTML")
             
-            # 1.webm 스티커 보내기
+            sticker_msg = None
             if os.path.exists("1.webm"):
                 try:
-                    with open("1.webm", "rb") as f: await context.bot.send_sticker(chat_id=chat_id, sticker=f)
+                    with open("1.webm", "rb") as f: sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
                 except: pass
                 
-            # 1.mp4 영상/음성 보내기
-            if os.path.exists("1.mp4"):
+            audio_msg = None
+            if os.path.exists("1.ogg"):
                 try:
-                    with open("1.mp4", "rb") as f: await context.bot.send_video(chat_id=chat_id, video=f)
+                    with open("1.ogg", "rb") as f: audio_msg = await context.bot.send_voice(chat_id=chat_id, voice=f)
                 except: pass
+            elif os.path.exists("1.mp3"):
+                try:
+                    with open("1.mp3", "rb") as f: audio_msg = await context.bot.send_audio(chat_id=chat_id, audio=f)
+                except: pass
+            
+            msgs_to_delete = [update.message.message_id, bot_reply.message_id]
+            if sticker_msg: msgs_to_delete.append(sticker_msg.message_id)
+            if audio_msg: msgs_to_delete.append(audio_msg.message_id)
+            asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_delete, 3.0))
             return
 
         elif "무욱자" in text and s_count >= 4:
@@ -253,7 +270,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             btns = [[InlineKeyboardButton(f"🗑️ {k} 삭제", callback_data=f"del_{k}")] for k in db.keys()]
             return await update.message.reply_text("📋 삭제 리스트:", reply_markup=InlineKeyboardMarkup(btns))
         
-        # 명령어 등록 (대소문자 무시)
         if update.message.photo:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
             if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
