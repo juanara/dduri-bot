@@ -14,7 +14,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port)
 
-# 2. 환경 변 로드
+# 2. 환경 변수 로드
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "8472713103"))
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
@@ -120,15 +120,15 @@ async def send_custom_output(context, chat_id, data, title=""):
             await context.bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="HTML")
     except Exception as e: logging.error(f"전송 에러: {e}")
 
-# ⭐ 메시지 자동 삭제 기능 (비동기 처리) ⭐
-async def delete_messages_later(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id_1: int, message_id_2: int, delay: float):
-    """지정된 시간(delay) 후 두 개의 메시지를 삭제합니다."""
+# ⭐ 다중 메시지 자동 삭제 기능 ⭐
+async def delete_messages_later(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_ids: list, delay: float):
     await asyncio.sleep(delay)
-    try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id_1) # 봇의 일침 메시지 삭제
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id_2) # 사용자의 원본 메시지 삭제
-    except Exception as e:
-        logging.error(f"메시지 삭제 실패 (이미 지워졌거나 권한 없음): {e}")
+    for msg_id in message_ids:
+        if msg_id:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except Exception as e:
+                pass 
 
 # 8. 메인 메시지 핸들러
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -142,54 +142,84 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if not update.message.from_user.is_bot:
-        # ⭐ [하우돈 전용 유쾌한 장난 감지 및 스포일러 후 삭제] ⭐
+        # ⭐ [하우돈 검거 시 스포일러 + 랜덤 스티커 발송 후 모두 삭제] ⭐
         banned_words = ["니노", "노무현", "무현", "노무"]
         if any(word in text for word in banned_words) or any(word in cap_html for word in banned_words):
             hawoodon_responses = [
-                "베충아!! 우도나!! ㅋㅋㅋ",
-                "또 우도니너지?! 🤨",
-                "아이고 우돈아 또 시작이냐 ㅋㅋㅋ",
-                "하우돈 검거 완료 👮‍♂️",
-                "우도니 폼 미쳤네 ㅋㅋㅋ 제발 멈춰!",
-                "이거 100% 하우돈이다 ㅋㅋㅋㅋ",
-                "우돈아 밥은 먹고 다니냐 🍚",
-                "하우돈 또 너야? ㅋㅋㅋㅋ",
-                "우도니 뇌절 멈춰! 🛑",
-                "우돈아 제발 여기서 이러지 마 ㅋㅋㅋ",
-                "베충이인 척 하는 우도니 검거 ㅋㅋㅋ",
-                "하우돈 형님 텐션 자제 좀요 ㅋㅋㅋ",
-                "우도니 또 선 넘네 ㅋㅋㅋㅋ ✂️",
-                "이건 빼박 하우돈 솜씨다 ㅋㅋㅋ",
-                "우돈아... 형이 많이 참았다 ^^",
-                "하우돈 또 장난치네 ㅋㅋㅋㅋ 으이구",
-                "우돈이 오늘 심심한가 보네 ㅋㅋㅋ",
-                "아오 하우돈 또 왔네 ㅋㅋㅋㅋ ㄲㅈ~",
-                "우도니 꿀밤 마렵네 ㅋㅋㅋㅋ 👊",
+                "베충아!! 우도나!! ㅋㅋㅋ", "또 우도니너지?! 🤨", "아이고 우돈아 또 시작이냐 ㅋㅋㅋ", "하우돈 검거 완료 👮‍♂️",
+                "우도니 폼 미쳤네 ㅋㅋㅋ 제발 멈춰!", "이거 100% 하우돈이다 ㅋㅋㅋㅋ", "우돈아 밥은 먹고 다니냐 🍚",
+                "하우돈 또 너야? ㅋㅋㅋㅋ", "우도니 뇌절 멈춰! 🛑", "우돈아 제발 여기서 이러지 마 ㅋㅋㅋ",
+                "베충이인 척 하는 우도니 검거 ㅋㅋㅋ", "하우돈 형님 텐션 자제 좀요 ㅋㅋㅋ", "우도니 또 선 넘네 ㅋㅋㅋㅋ ✂️",
+                "이건 빼박 하우돈 솜씨다 ㅋㅋㅋ", "우돈아... 형이 많이 참았다 ^^", "하우돈 또 장난치네 ㅋㅋㅋㅋ 으이구",
+                "우돈이 오늘 심심한가 보네 ㅋㅋㅋ", "아오 하우돈 또 왔네 ㅋㅋㅋㅋ ㄲㅈ~", "우도니 꿀밤 마렵네 ㅋㅋㅋㅋ 👊",
                 "하우돈 지분율 무엇 ㅋㅋㅋㅋ 또 너냐!"
             ]
             reply_text = f"<tg-spoiler>{random.choice(hawoodon_responses)}</tg-spoiler>"
             bot_reply = await update.message.reply_text(reply_text, parse_mode="HTML")
             
-            # 2.5초 뒤에 봇 메시지 + 유저 메시지 동시 삭제 백그라운드 실행
-            asyncio.create_task(
-                delete_messages_later(context, chat_id, bot_reply.message_id, update.message.message_id, 2.5)
-            )
-            return # 악성 채팅은 여기서 바로 종료 (아래 로직 무시)
+            # 스티커 발송 (2.webm, 2.webp, 3.webp 중 랜덤 선택)
+            sticker_msg = None
+            udon_stickers = ["2.webm", "2.webp", "3.webp"]
+            chosen_sticker = random.choice(udon_stickers)
+            
+            if os.path.exists(chosen_sticker):
+                try:
+                    with open(chosen_sticker, "rb") as f:
+                        sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
+                except Exception as e: logging.error(f"스티커 에러: {e}")
 
-        # [MZ 환호성 맞춤형 리액션 기능]
+            # 2.5초 뒤 삭제할 메시지 목록
+            msgs_to_delete = [update.message.message_id, bot_reply.message_id]
+            if sticker_msg: msgs_to_delete.append(sticker_msg.message_id)
+            
+            asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_delete, 2.5))
+            return 
+
+        # ⭐ [MZ 환호성 맞춤형 리액션 + 1.webm 및 1.mp4 발송 기능] ⭐
         s_count = text.count('ㅅ')
         if "분부니" in text and s_count >= 6:
             bunbuni_congrats = ["대여왕 분부니 강림!!! ㅅㅅㅅㅅ 폼 미쳤다이! 👑", "킹왕짱 분부니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 👸", "분부니 폼 도라방스;; 완전 럭키비키잔앙~ 🍀", "갓부니 찬양하라!! 오늘 텐션 개찢었네 ㅅㅅㅅ 🔥", "분부니 여왕님 나이스샷~!! 축하드립니당 🥳", "크~ 역시 대여왕 클라스! 지려버렸고~ 🚀", "분부니 기모띠~~ 오늘 저녁은 소고기 가즈아 🥩", "빛부니 ㄷㄷ 진짜 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 💯", "분부니 여왕님 폼 미쳤다!! 앙 기모링~~ 👑", "와 찢었다;; 분부니 레전드 갱신 ㅊㅋㅊㅋ 🎉"]
-            return await update.message.reply_text(random.choice(bunbuni_congrats), parse_mode="HTML")
+            await update.message.reply_text(random.choice(bunbuni_congrats), parse_mode="HTML")
+            
+            # 1.webm 스티커 보내기
+            if os.path.exists("1.webm"):
+                try:
+                    with open("1.webm", "rb") as f: await context.bot.send_sticker(chat_id=chat_id, sticker=f)
+                except: pass
+                
+            # 1.mp4 영상/음성 보내기
+            if os.path.exists("1.mp4"):
+                try:
+                    with open("1.mp4", "rb") as f: await context.bot.send_video(chat_id=chat_id, video=f)
+                except: pass
+            return
+
         elif "뷰니" in text and s_count >= 5:
             vyuni_congrats = ["뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑", "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀", "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥", "뷰니 여왕님 나이스!! 앙 기모링~~ 👸", "캬~ 역시 뷰니 클라스! 지려버렸고~ 🚀", "뷰코뷰코니 폼 미쳤다이!! 축하드립니당 🥳", "뷰니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 💯", "빛뷰니 ㄷㄷ 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 🎉", "뷰니 폼 미쳤다!! 오늘 저녁은 소고기 가즈아 🥩", "와 찢었다;; 뷰니 여왕님 레전드 갱신 ㅊㅋㅊㅋ 👑"]
-            return await update.message.reply_text(random.choice(vyuni_congrats), parse_mode="HTML")
+            await update.message.reply_text(random.choice(vyuni_congrats), parse_mode="HTML")
+            
+            # 1.webm 스티커 보내기
+            if os.path.exists("1.webm"):
+                try:
+                    with open("1.webm", "rb") as f: await context.bot.send_sticker(chat_id=chat_id, sticker=f)
+                except: pass
+                
+            # 1.mp4 영상/음성 보내기
+            if os.path.exists("1.mp4"):
+                try:
+                    with open("1.mp4", "rb") as f: await context.bot.send_video(chat_id=chat_id, video=f)
+                except: pass
+            return
+
         elif "무욱자" in text and s_count >= 4:
             muukja_congrats = ["우욱자갓 ㅅㅅㅅㅅㅅㅅㅅ 미친 폼 도라방스!! 🔥", "무욱자 폼 미쳤다이!! 완전 럭키비키잔앙~ 🍀", "갓욱자 등장!! 앙 기모링~~ ㅊㅋㅊㅋ 🚀", "무욱자 지려버렸고~~! 오늘 텐션 찢었다 ㅅㅅㅅ 💯", "캬 취한다~~ 우욱자갓 나이스샷!! 🎉"]
-            return await update.message.reply_text(random.choice(muukja_congrats), parse_mode="HTML")
+            await update.message.reply_text(random.choice(muukja_congrats), parse_mode="HTML")
+            return 
+
         elif s_count >= 9 or text.count('ㅆ') >= 9:
             mz_congrats = ["개나이스! 앙 기모링~~ 폼 미쳤다이! 🔥", "추카드립니더 ㅅㅅㅅ 오늘 저녁은 소고기 가즈아~ 🥩", "와 찢었다;; 레전드 갱신 ㅊㅋㅊㅋ 🚀", "대박사건 ㄷㄷ 완전 럭키비키잔앙~ 🍀 축하드려요!", "캬 취한다~~ 이븐하게 잘 익었네요 ㅊㅋㅊㅋ 🍻", "진짜 개지렸다;; 축하드립니다 앙 기모띠~~ 😎", "오우야 축하드립니다!! 떡상 가즈아아아 📈", "나이스샷~~! 폼 진짜 도라방스네요 ㅊㅋㅊㅋ 🎉🎉", "미쳤다 미쳤어! 지려버렸고~ 축하드립니당 ㅅㅅㅅ 🥳", "폼 미쳤다 ㄷㄷ 오늘 텐션 폼 찢었네요 축하축하! 💯"]
-            return await update.message.reply_text(random.choice(mz_congrats), parse_mode="HTML")
+            await update.message.reply_text(random.choice(mz_congrats), parse_mode="HTML")
+            return
 
     # [점메추]
     if text.startswith("/점메추"):
