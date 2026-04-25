@@ -69,27 +69,26 @@ media_group_cache = {}
 
 # 4. 실시간 날씨 함수
 async def get_realtime_weather(city_input="수원"):
-    if not WEATHER_API_KEY: return "❌ WEATHER_API_KEY 등록 필요"
+    if not WEATHER_API_KEY: return "❌ API_KEY 누락"
     city_map = {"수원": "Suwon", "서울": "Seoul", "인천": "Incheon", "부산": "Busan", "제주": "Jeju"}
     city_name = city_map.get(city_input, city_input)
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang=kr"
         data = requests.get(url, timeout=5).json()
         if data.get("cod") == 200:
-            return f"📍 <b>{city_input} 날씨</b>\n🌡️ 기온: {data['main']['temp']}°C\n📝 {data['weather'][0]['description']}"
+            return f"📍 <b>{city_input} 날씨</b>\n🌡️ {data['main']['temp']}°C / {data['weather'][0]['description']}"
         return "❌ 지역 찾기 실패"
-    except: return "⚠️ 서버 오류"
+    except: return "⚠️ 오류"
 
 # 5. 메뉴 추천 로직
 def get_menu_recommendation(command):
     menus = ["제육볶음", "돈까스", "짜장면", "삼겹살", "치킨", "초밥", "쌀국수", "텐동"]
-    return f"🍴 <b>오늘의 추천</b>: <b>{random.choice(menus)}</b>"
+    return f"🍴 <b>추천 메뉴</b>: <b>{random.choice(menus)}</b>"
 
-# 6. 주사위 가중치 로직
+# 6. 주사위 가중치
 def get_weighted_dice():
     seed = random.random() * 100
     if seed < 0.1: return random.randrange(40000, 50001, 500)
-    elif seed < 1.1: return random.randrange(30000, 40000, 500)
     elif seed < 8.1: return random.randrange(5000, 10000, 500)
     else: return random.randrange(500, 5000, 500)
 
@@ -124,7 +123,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_auth = await is_authorized(update, context)
 
         if is_auth:
-            # 전체 멘션 (문구 없이 10명씩)
+            # 전체 멘션 (10인 분할)
             if text_lower.startswith(("/all", "/전체공지", "/전체멘션")):
                 members = get_members(chat_id)
                 if not members: return await update.message.reply_text("❌ 등록 멤버 없음")
@@ -149,41 +148,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     body = "\n".join([f"{i+1}. {mname}" for i, (mid, mname) in enumerate(members.items())])
                     return await update.message.reply_text(f"📋 <b>소통 VIP 회원수 (총 {len(members)}명)</b>\n\n{body}", parse_mode="HTML")
 
-        # [필터링] 하우돈 변형어 검거 (2.5초 삭제)
-        bad_words = ["니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "봉하"]
+        # [필터링] 하우돈 변형어 및 비속어 검거 (2.5초 삭제) ⭐
+        bad_words = [
+            "니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", 
+            "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹"
+        ]
         if any(w in text for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
             s_msg = None
             if os.path.exists("2.webm"):
                 try: 
-                    with open("2.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
-                except: pass
+                    with open("2.webm", "rb") as f:
+                        s_msg = await context.bot.send_sticker(chat_id, f)
+                except Exception: pass
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None)], 2.5))
             return 
 
-        # [리액션] 여왕님 찬양 랜덤 멘트 (3초 삭제)
+        # [리액션] 여왕님 찬양 랜덤 멘트 (3초 삭제) ⭐
         s_count = text.count('ㅅ')
         if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
             queen_mentions = [
                 "대여왕 강림!!! 👑 ㅅㅅㅅㅅ",
                 "여왕님 폼 미쳤다!! 🙇‍♂️ 충성충성",
                 "역시 우리 여왕님 클라스!! 👸 빛이 난다...",
-                "세상을 지배하는 뷰모(대충 뷰누나 미모라는뜻)!! 👑 찬양하라!!",
+                "세상을 지배하는 뷰모!! 👑 찬양하라!!",
                 "분부니 킹갓제네럴 뷰니 여왕님 만세!! 🔥 압도적 감사!!",
                 "이것이 바로 뷰여왕의 품격... 👑 ㅅㅅㅅㅅ"
             ]
             rep = await update.message.reply_text(random.choice(queen_mentions), parse_mode="HTML")
             s_msg, a_msg = None, None
             if os.path.exists("1.webm"):
-                try: with open("1.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
-                except: pass
+                try:
+                    with open("1.webm", "rb") as f:
+                        s_msg = await context.bot.send_sticker(chat_id, f)
+                except Exception: pass
             if os.path.exists("1.ogg"):
-                try: with open("1.ogg", "rb") as f: a_msg = await context.bot.send_voice(chat_id, f)
-                except: pass
+                try:
+                    with open("1.ogg", "rb") as f:
+                        a_msg = await context.bot.send_voice(chat_id, f)
+                except Exception: pass
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None), (a_msg.message_id if a_msg else None)], 3.0))
             return
 
-        # [리액션] ㅅ/ㅆ 가속 랜덤 멘트
+        # [리액션] ㅅ/ㅆ 가속 랜덤 멘트 ⭐
         elif "무욱자" in text and s_count >= 4:
             return await update.message.reply_text("우욱자갓 ㅅㅅㅅㅅ 미친 폼!! 🔥")
         elif s_count >= 9 or text.count('ㅆ') >= 9:
@@ -231,7 +238,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, chat_id, context))
             return
 
-    # 카운팅 (50회 저장 / 5000회 당첨)
+    # 카운팅
     if not is_private and not text.startswith(('/', '!')) and not cap_html.startswith('/'):
         message_counter += 1
         if message_counter % 50 == 0: save_bot_data(db_commands, message_counter)
@@ -259,7 +266,7 @@ async def save_logic(m_id, chat_id, context):
             db_commands[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
             save_bot_data(db_commands, message_counter)
             await context.bot.send_message(chat_id, f"✅ [{key}] 영구 저장")
-        except: pass
+        except Exception: pass
         del media_group_cache[m_id]
 
 async def send_custom_output(context, chat_id, data, title=""):
@@ -277,7 +284,7 @@ async def send_custom_output(context, chat_id, data, title=""):
             media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(fid) for fid in photos[1:]]
             await context.bot.send_media_group(chat_id, media)
             if markup: await context.bot.send_message(chat_id, "⚡️ 버튼 확인", reply_markup=markup)
-    except: pass
+    except Exception: pass
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db_commands, message_counter
