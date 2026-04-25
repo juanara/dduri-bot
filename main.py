@@ -19,7 +19,7 @@ TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "8472713103"))
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# 3. 데이터 저장 및 로드 기능
+# 3. 데이터 저장 및 로드
 DB_FILE = "database.json"
 
 def load_db():
@@ -42,7 +42,7 @@ db = current_data.get("commands", {})
 message_counter = current_data.get("counter", 0)
 media_group_cache = {}
 
-# 4. 실시간 날씨 함수 (한글 지원)
+# 4. 실시간 날씨 함수
 async def get_realtime_weather(city_input="수원"):
     if not WEATHER_API_KEY:
         return "❌ Render 환경변수에 WEATHER_API_KEY를 등록해주세요."
@@ -78,51 +78,20 @@ async def get_realtime_weather(city_input="수원"):
     except:
         return "⚠️ 날씨 서버 연결 오류가 발생했습니다."
 
-# 5. 점심 메뉴 추천 함수 (메뉴 대폭 추가)
+# 5. 점심 메뉴 추천 함수
 def get_lunch_recommendation():
     menu_list = [
-        ("한식 🍚", [
-            "김치찌개와 계란말이", "제육볶음과 쌈밥", "뜨끈한 순대국밥", "뼈해장국", "비빔밥과 된장찌개", 
-            "부대찌개", "갈비탕", "매콤한 낙지덮밥", "육회비빔밥", "닭갈비", "보쌈정식", 
-            "청국장", "순두부찌개", "고등어구이 정식", "불고기 백반", "콩나물국밥", "수제비와 겉절이"
-        ]),
-        ("중식 🍜", [
-            "짜장면과 군만두", "해물짬뽕", "마라탕과 꿔바로우", "볶음밥", "잡채밥", 
-            "마파두부 덮밥", "탕수육 정식", "유산슬밥", "고추잡채", "차돌짬뽕", "간짜장"
-        ]),
-        ("일식 🍣", [
-            "바삭한 로스카츠", "치즈카츠", "신선한 모듬초밥", "사케동(연어덮밥)", "가츠동", 
-            "규동(소고기덮밥)", "냉모밀과 유부초밥", "돈코츠 라멘", "미소 라멘", "회덮밥", 
-            "텐동(모듬튀김덮밥)", "우동과 새우튀김"
-        ]),
-        ("양식 🍕", [
-            "수제 치즈버거", "베이컨 크림 파스타", "매콤한 토마토 파스타", "페퍼로니 피자", 
-            "안심 스테이크", "치킨 리조또", "봉골레 파스타", "오므라이스", "에그 베네딕트"
-        ]),
-        ("아시안/기타 🍲", [
-            "소고기 쌀국수", "팟타이", "나시고랭", "인도식 커리와 난", "탄두리 치킨", 
-            "분짜", "똠양꿍", "멕시칸 타코", "부리또"
-        ]),
-        ("분식/가벼운 식사 🥪", [
-            "떡볶이와 모듬튀김", "치즈 김밥과 라면", "돈까스 김밥 반줄 세트", "비빔국수", 
-            "잔치국수", "신선한 연어 샐러드", "클럽 샌드위치", "이삭토스트", "서브웨이 꿀조합"
-        ])
+        ("한식 🍚", ["김치찌개와 계란말이", "제육볶음과 쌈밥", "뜨끈한 순대국밥", "뼈해장국", "비빔밥과 된장찌개", "부대찌개", "갈비탕", "육회비빔밥", "닭갈비", "보쌈정식"]),
+        ("중식 🍜", ["짜장면과 군만두", "해물짬뽕", "마라탕과 꿔바로우", "볶음밥", "잡채밥", "마파두부 덮밥", "탕수육 정식", "차돌짬뽕"]),
+        ("일식 🍣", ["바삭한 로스카츠", "치즈카츠", "모듬초밥", "사케동(연어덮밥)", "가츠동", "규동(소고기덮밥)", "돈코츠 라멘", "미소 라멘", "텐동"]),
+        ("양식 🍕", ["수제 치즈버거", "베이컨 크림 파스타", "매콤한 토마토 파스타", "페퍼로니 피자", "안심 스테이크", "치킨 리조또"]),
+        ("아시안/기타 🍲", ["소고기 쌀국수", "팟타이", "나시고랭", "인도식 커리와 난", "분짜", "멕시칸 타코"]),
+        ("분식/가벼운 식사 🥪", ["떡볶이와 모듬튀김", "돈까스 김밥 반줄 세트", "잔치국수", "연어 샐러드", "이삭토스트", "서브웨이 꿀조합"])
     ]
     category, items = random.choice(menu_list)
     menu = random.choice(items)
-    
-    comments = [
-        "오늘 이거 먹으면 기분 최고! 🔥",
-        "탁월한 선택이네요! 맛있게 드세요. 😋",
-        "결정하기 힘들 땐 역시 이게 최고죠! ✨",
-        "든든하게 드시고 기운 내세요! 💪",
-        "오늘은 왠지 이게 땡기는 날이네요! 🍀"
-    ]
-    
-    return (f"🍴 <b>오늘의 점심 추천</b>\n\n"
-            f"종류: <b>{category}</b>\n"
-            f"메뉴: <b>{menu}</b>\n\n"
-            f"💬 <i>{random.choice(comments)}</i>")
+    comments = ["오늘 이거 먹으면 기분 최고! 🔥", "탁월한 선택이네요! 맛있게 드세요. 😋", "결정하기 힘들 땐 역시 이게 최고죠! ✨", "든든하게 드시고 기운 내세요! 💪"]
+    return (f"🍴 <b>오늘의 점심 추천</b>\n\n종류: <b>{category}</b>\n메뉴: <b>{menu}</b>\n\n💬 <i>{random.choice(comments)}</i>")
 
 # 6. 주사위 확률 로직
 def get_weighted_dice():
@@ -172,6 +141,69 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cap_html = update.message.caption_html or ""
     is_private = update.effective_chat.type == "private"
 
+    # ⭐ [MZ 환호성 맞춤형 리액션 기능] ⭐
+    if not update.message.from_user.is_bot:
+        s_count = text.count('ㅅ')
+
+        # 1. 분부니 (ㅅ 6개 이상)
+        if "분부니" in text and s_count >= 6:
+            bunbuni_congrats = [
+                "대여왕 분부니 강림!!! ㅅㅅㅅㅅ 폼 미쳤다이! 👑",
+                "킹왕짱 분부니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 👸",
+                "분부니 폼 도라방스;; 완전 럭키비키잔앙~ 🍀",
+                "갓부니 찬양하라!! 오늘 텐션 개찢었네 ㅅㅅㅅ 🔥",
+                "분부니 여왕님 나이스샷~!! 축하드립니당 🥳",
+                "크~ 역시 대여왕 클라스! 지려버렸고~ 🚀",
+                "분부니 기모띠~~ 오늘 저녁은 소고기 가즈아 🥩",
+                "빛부니 ㄷㄷ 진짜 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 💯",
+                "분부니 여왕님 폼 미쳤다!! 앙 기모링~~ 👑",
+                "와 찢었다;; 분부니 레전드 갱신 ㅊㅋㅊㅋ 🎉"
+            ]
+            return await update.message.reply_text(random.choice(bunbuni_congrats), parse_mode="HTML")
+
+        # 2. 뷰니 (ㅅ 5개 이상)
+        elif "뷰니" in text and s_count >= 5:
+            vyuni_congrats = [
+                "뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑",
+                "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀",
+                "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥",
+                "뷰니 여왕님 나이스!! 앙 기모링~~ 👸",
+                "캬~ 역시 뷰니 클라스! 지려버렸고~ 🚀",
+                "뷰코뷰코니 폼 미쳤다이!! 축하드립니당 🥳",
+                "뷰니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 💯",
+                "빛뷰니 ㄷㄷ 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 🎉",
+                "뷰니 폼 미쳤다!! 오늘 저녁은 소고기 가즈아 🥩",
+                "와 찢었다;; 뷰니 여왕님 레전드 갱신 ㅊㅋㅊㅋ 👑"
+            ]
+            return await update.message.reply_text(random.choice(vyuni_congrats), parse_mode="HTML")
+
+        # 3. 무욱자 (ㅅ 4개 이상)
+        elif "무욱자" in text and s_count >= 4:
+            muukja_congrats = [
+                "우욱자갓 ㅅㅅㅅㅅㅅㅅㅅ 미친 폼 도라방스!! 🔥",
+                "무욱자 폼 미쳤다이!! 완전 럭키비키잔앙~ 🍀",
+                "갓욱자 등장!! 앙 기모링~~ ㅊㅋㅊㅋ 🚀",
+                "무욱자 지려버렸고~~! 오늘 텐션 찢었다 ㅅㅅㅅ 💯",
+                "캬 취한다~~ 우욱자갓 나이스샷!! 🎉"
+            ]
+            return await update.message.reply_text(random.choice(muukja_congrats), parse_mode="HTML")
+
+        # 4. 기본 환호 (ㅅ 9개 이상 or ㅆ 9개 이상)
+        elif s_count >= 9 or text.count('ㅆ') >= 9:
+            mz_congrats = [
+                "개나이스! 앙 기모링~~ 폼 미쳤다이! 🔥",
+                "추카드립니더 ㅅㅅㅅ 오늘 저녁은 소고기 가즈아~ 🥩",
+                "와 찢었다;; 레전드 갱신 ㅊㅋㅊㅋ 🚀",
+                "대박사건 ㄷㄷ 완전 럭키비키잔앙~ 🍀 축하드려요!",
+                "캬 취한다~~ 이븐하게 잘 익었네요 ㅊㅋㅊㅋ 🍻",
+                "진짜 개지렸다;; 축하드립니다 앙 기모띠~~ 😎",
+                "오우야 축하드립니다!! 떡상 가즈아아아 📈",
+                "나이스샷~~! 폼 진짜 도라방스네요 ㅊㅋㅊㅋ 🎉🎉",
+                "미쳤다 미쳤어! 지려버렸고~ 축하드립니당 ㅅㅅㅅ 🥳",
+                "폼 미쳤다 ㄷㄷ 오늘 텐션 폼 찢었네요 축하축하! 💯"
+            ]
+            return await update.message.reply_text(random.choice(mz_congrats), parse_mode="HTML")
+
     # [점메추]
     if text.startswith("/점메추"):
         res = get_lunch_recommendation()
@@ -209,7 +241,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             btns = [[InlineKeyboardButton(f"🗑️ {k} 삭제", callback_data=f"del_{k}")] for k in db.keys()]
             return await update.message.reply_text("📋 삭제 리스트:", reply_markup=InlineKeyboardMarkup(btns))
         
-        # 명령어 등록 (대소문자 무시 기능 추가)
+        # 명령어 등록 (대소문자 무시)
         if update.message.photo:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
             if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
@@ -232,7 +264,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
 
-# 10. 명령어 저장 로직 (대소문자 무시 추가)
+# 10. 명령어 저장 로직
 async def save_logic(m_id, chat_id, context):
     global db, message_counter
     await asyncio.sleep(2.5)
@@ -242,14 +274,12 @@ async def save_logic(m_id, chat_id, context):
             if "/이벤트설정" in raw_cap:
                 key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
             else:
-                # 대소문자 무관 정규식 (IGNORECASE)
                 match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_cap, re.IGNORECASE | re.DOTALL)
                 if match: key, content = match.group(1), match.group(2)
                 else: return
             
             msg, btn = content, ""
             if "---" in content: msg, btn = content.rsplit("---", 1)
-            # 버튼은 태그 제거
             clean_btn = re.sub('<[^<]+?>', '', btn).strip()
             
             db[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": clean_btn}
@@ -259,7 +289,7 @@ async def save_logic(m_id, chat_id, context):
             logging.error(f"저장 에러: {e}")
         del media_group_cache[m_id]
 
-# 11. 콜백 핸들러 (삭제 기능)
+# 11. 콜백 핸들러
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, message_counter
     query = update.callback_query
