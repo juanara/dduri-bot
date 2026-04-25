@@ -14,7 +14,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port)
 
-# 2. 환경 변수 로드
+# 2. 환경 변 로드
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "8472713103"))
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
@@ -46,39 +46,32 @@ media_group_cache = {}
 async def get_realtime_weather(city_input="수원"):
     if not WEATHER_API_KEY:
         return "❌ Render 환경변수에 WEATHER_API_KEY를 등록해주세요."
-
     city_map = {
         "수원": "Suwon", "서울": "Seoul", "인천": "Incheon", 
         "부산": "Busan", "대구": "Daegu", "대전": "Daejeon", 
         "광주": "Gwangju", "울산": "Ulsan", "제주": "Jeju"
     }
     city_name = city_map.get(city_input, city_input)
-
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang=kr"
         response = requests.get(url, timeout=5)
         data = response.json()
-
         if data.get("cod") == 200:
             weather_desc = data["weather"][0]["description"]
             temp = data["main"]["temp"]
             feels_like = data["main"]["feels_like"]
             icon = data["weather"][0]["icon"]
             emoji = "☀️" if "01" in icon else "☁️" if "02" in icon or "03" in icon or "04" in icon else "🌧️" if "09" in icon or "10" in icon else "⚡" if "11" in icon else "❄️" if "13" in icon else "🌫️"
-            
             return (f"📍 <b>{city_input} 실시간 날씨</b> {emoji}\n\n"
                     f"🌡️ <b>현재 기온:</b> {temp}°C\n"
                     f"🤔 <b>체감 온도:</b> {feels_like}°C\n"
                     f"📝 <b>날씨 상태:</b> {weather_desc}\n\n"
                     f"✨ <i>조회 시간 기준 실시간 정보입니다.</i>")
-        elif data.get("cod") == 401:
-            return "⚠️ API 키가 아직 활성화되지 않았습니다. (메일 인증 후 1~2시간 대기 필요)"
-        else:
-            return f"❌ '{city_input}' 지역을 찾을 수 없습니다."
-    except:
-        return "⚠️ 날씨 서버 연결 오류가 발생했습니다."
+        elif data.get("cod") == 401: return "⚠️ API 키 활성화 대기 중 (1~2시간 소요)"
+        else: return f"❌ '{city_input}' 지역을 찾을 수 없습니다."
+    except: return "⚠️ 날씨 서버 연결 오류"
 
-# 5. 점심 메뉴 추천 함수
+# 5. 점심 메뉴 추천
 def get_lunch_recommendation():
     menu_list = [
         ("한식 🍚", ["김치찌개와 계란말이", "제육볶음과 쌈밥", "뜨끈한 순대국밥", "뼈해장국", "비빔밥과 된장찌개", "부대찌개", "갈비탕", "육회비빔밥", "닭갈비", "보쌈정식"]),
@@ -93,7 +86,7 @@ def get_lunch_recommendation():
     comments = ["오늘 이거 먹으면 기분 최고! 🔥", "탁월한 선택이네요! 맛있게 드세요. 😋", "결정하기 힘들 땐 역시 이게 최고죠! ✨", "든든하게 드시고 기운 내세요! 💪"]
     return (f"🍴 <b>오늘의 점심 추천</b>\n\n종류: <b>{category}</b>\n메뉴: <b>{menu}</b>\n\n💬 <i>{random.choice(comments)}</i>")
 
-# 6. 주사위 확률 로직
+# 6. 주사위 확률
 def get_weighted_dice():
     seed = random.random() * 100
     if seed < 0.1: return random.randrange(40000, 50001, 500)
@@ -102,25 +95,21 @@ def get_weighted_dice():
     elif seed < 8.1: return random.randrange(5000, 10000, 500)
     else: return random.randrange(500, 5000, 500)
 
-# 7. 버튼 생성 로직
+# 7. 버튼 및 전송 로직
 def build_button_markup(button_data):
     if not button_data: return None
     keyboard = []
     for line in button_data.strip().split('\n'):
-        row = [InlineKeyboardButton(btn.split('|')[0].strip(), url=btn.split('|')[1].strip()) 
-               for btn in line.split('&&') if '|' in btn]
+        row = [InlineKeyboardButton(btn.split('|')[0].strip(), url=btn.split('|')[1].strip()) for btn in line.split('&&') if '|' in btn]
         if row: keyboard.append(row)
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
-# 8. 출력 전송 함수
 async def send_custom_output(context, chat_id, data, title=""):
     try:
         photos, caption = data["photos"], f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
         markup = build_button_markup(data.get("buttons", ""))
-        
         if len(caption) <= 1000:
-            if len(photos) == 1:
-                await context.bot.send_photo(chat_id, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
+            if len(photos) == 1: await context.bot.send_photo(chat_id, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
             else:
                 media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(fid) for fid in photos[1:]]
                 await context.bot.send_media_group(chat_id, media)
@@ -131,7 +120,17 @@ async def send_custom_output(context, chat_id, data, title=""):
             await context.bot.send_message(chat_id, caption, reply_markup=markup, parse_mode="HTML")
     except Exception as e: logging.error(f"전송 에러: {e}")
 
-# 9. 메인 메시지 핸들러
+# ⭐ 메시지 자동 삭제 기능 (비동기 처리) ⭐
+async def delete_messages_later(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id_1: int, message_id_2: int, delay: float):
+    """지정된 시간(delay) 후 두 개의 메시지를 삭제합니다."""
+    await asyncio.sleep(delay)
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id_1) # 봇의 일침 메시지 삭제
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id_2) # 사용자의 원본 메시지 삭제
+    except Exception as e:
+        logging.error(f"메시지 삭제 실패 (이미 지워졌거나 권한 없음): {e}")
+
+# 8. 메인 메시지 핸들러
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, message_counter, media_group_cache
     if not update.message: return
@@ -140,68 +139,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     cap_html = update.message.caption_html or ""
     is_private = update.effective_chat.type == "private"
+    chat_id = update.effective_chat.id
 
-    # ⭐ [MZ 환호성 맞춤형 리액션 기능] ⭐
     if not update.message.from_user.is_bot:
+        # ⭐ [하우돈 전용 유쾌한 장난 감지 및 스포일러 후 삭제] ⭐
+        banned_words = ["니노", "노무현", "무현", "노무"]
+        if any(word in text for word in banned_words) or any(word in cap_html for word in banned_words):
+            hawoodon_responses = [
+                "베충아!! 우도나!! ㅋㅋㅋ",
+                "또 우도니너지?! 🤨",
+                "아이고 우돈아 또 시작이냐 ㅋㅋㅋ",
+                "하우돈 검거 완료 👮‍♂️",
+                "우도니 폼 미쳤네 ㅋㅋㅋ 제발 멈춰!",
+                "이거 100% 하우돈이다 ㅋㅋㅋㅋ",
+                "우돈아 밥은 먹고 다니냐 🍚",
+                "하우돈 또 너야? ㅋㅋㅋㅋ",
+                "우도니 뇌절 멈춰! 🛑",
+                "우돈아 제발 여기서 이러지 마 ㅋㅋㅋ",
+                "베충이인 척 하는 우도니 검거 ㅋㅋㅋ",
+                "하우돈 형님 텐션 자제 좀요 ㅋㅋㅋ",
+                "우도니 또 선 넘네 ㅋㅋㅋㅋ ✂️",
+                "이건 빼박 하우돈 솜씨다 ㅋㅋㅋ",
+                "우돈아... 형이 많이 참았다 ^^",
+                "하우돈 또 장난치네 ㅋㅋㅋㅋ 으이구",
+                "우돈이 오늘 심심한가 보네 ㅋㅋㅋ",
+                "아오 하우돈 또 왔네 ㅋㅋㅋㅋ ㄲㅈ~",
+                "우도니 꿀밤 마렵네 ㅋㅋㅋㅋ 👊",
+                "하우돈 지분율 무엇 ㅋㅋㅋㅋ 또 너냐!"
+            ]
+            reply_text = f"<tg-spoiler>{random.choice(hawoodon_responses)}</tg-spoiler>"
+            bot_reply = await update.message.reply_text(reply_text, parse_mode="HTML")
+            
+            # 2.5초 뒤에 봇 메시지 + 유저 메시지 동시 삭제 백그라운드 실행
+            asyncio.create_task(
+                delete_messages_later(context, chat_id, bot_reply.message_id, update.message.message_id, 2.5)
+            )
+            return # 악성 채팅은 여기서 바로 종료 (아래 로직 무시)
+
+        # [MZ 환호성 맞춤형 리액션 기능]
         s_count = text.count('ㅅ')
-
-        # 1. 분부니 (ㅅ 6개 이상)
         if "분부니" in text and s_count >= 6:
-            bunbuni_congrats = [
-                "대여왕 분부니 강림!!! ㅅㅅㅅㅅ 폼 미쳤다이! 👑",
-                "킹왕짱 분부니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 👸",
-                "분부니 폼 도라방스;; 완전 럭키비키잔앙~ 🍀",
-                "갓부니 찬양하라!! 오늘 텐션 개찢었네 ㅅㅅㅅ 🔥",
-                "분부니 여왕님 나이스샷~!! 축하드립니당 🥳",
-                "크~ 역시 대여왕 클라스! 지려버렸고~ 🚀",
-                "분부니 기모띠~~ 오늘 저녁은 소고기 가즈아 🥩",
-                "빛부니 ㄷㄷ 진짜 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 💯",
-                "분부니 여왕님 폼 미쳤다!! 앙 기모링~~ 👑",
-                "와 찢었다;; 분부니 레전드 갱신 ㅊㅋㅊㅋ 🎉"
-            ]
+            bunbuni_congrats = ["대여왕 분부니 강림!!! ㅅㅅㅅㅅ 폼 미쳤다이! 👑", "킹왕짱 분부니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 👸", "분부니 폼 도라방스;; 완전 럭키비키잔앙~ 🍀", "갓부니 찬양하라!! 오늘 텐션 개찢었네 ㅅㅅㅅ 🔥", "분부니 여왕님 나이스샷~!! 축하드립니당 🥳", "크~ 역시 대여왕 클라스! 지려버렸고~ 🚀", "분부니 기모띠~~ 오늘 저녁은 소고기 가즈아 🥩", "빛부니 ㄷㄷ 진짜 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 💯", "분부니 여왕님 폼 미쳤다!! 앙 기모링~~ 👑", "와 찢었다;; 분부니 레전드 갱신 ㅊㅋㅊㅋ 🎉"]
             return await update.message.reply_text(random.choice(bunbuni_congrats), parse_mode="HTML")
-
-        # 2. 뷰니 (ㅅ 5개 이상)
         elif "뷰니" in text and s_count >= 5:
-            vyuni_congrats = [
-                "뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑",
-                "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀",
-                "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥",
-                "뷰니 여왕님 나이스!! 앙 기모링~~ 👸",
-                "캬~ 역시 뷰니 클라스! 지려버렸고~ 🚀",
-                "뷰코뷰코니 폼 미쳤다이!! 축하드립니당 🥳",
-                "뷰니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 💯",
-                "빛뷰니 ㄷㄷ 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 🎉",
-                "뷰니 폼 미쳤다!! 오늘 저녁은 소고기 가즈아 🥩",
-                "와 찢었다;; 뷰니 여왕님 레전드 갱신 ㅊㅋㅊㅋ 👑"
-            ]
+            vyuni_congrats = ["뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑", "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀", "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥", "뷰니 여왕님 나이스!! 앙 기모링~~ 👸", "캬~ 역시 뷰니 클라스! 지려버렸고~ 🚀", "뷰코뷰코니 폼 미쳤다이!! 축하드립니당 🥳", "뷰니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 💯", "빛뷰니 ㄷㄷ 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 🎉", "뷰니 폼 미쳤다!! 오늘 저녁은 소고기 가즈아 🥩", "와 찢었다;; 뷰니 여왕님 레전드 갱신 ㅊㅋㅊㅋ 👑"]
             return await update.message.reply_text(random.choice(vyuni_congrats), parse_mode="HTML")
-
-        # 3. 무욱자 (ㅅ 4개 이상)
         elif "무욱자" in text and s_count >= 4:
-            muukja_congrats = [
-                "우욱자갓 ㅅㅅㅅㅅㅅㅅㅅ 미친 폼 도라방스!! 🔥",
-                "무욱자 폼 미쳤다이!! 완전 럭키비키잔앙~ 🍀",
-                "갓욱자 등장!! 앙 기모링~~ ㅊㅋㅊㅋ 🚀",
-                "무욱자 지려버렸고~~! 오늘 텐션 찢었다 ㅅㅅㅅ 💯",
-                "캬 취한다~~ 우욱자갓 나이스샷!! 🎉"
-            ]
+            muukja_congrats = ["우욱자갓 ㅅㅅㅅㅅㅅㅅㅅ 미친 폼 도라방스!! 🔥", "무욱자 폼 미쳤다이!! 완전 럭키비키잔앙~ 🍀", "갓욱자 등장!! 앙 기모링~~ ㅊㅋㅊㅋ 🚀", "무욱자 지려버렸고~~! 오늘 텐션 찢었다 ㅅㅅㅅ 💯", "캬 취한다~~ 우욱자갓 나이스샷!! 🎉"]
             return await update.message.reply_text(random.choice(muukja_congrats), parse_mode="HTML")
-
-        # 4. 기본 환호 (ㅅ 9개 이상 or ㅆ 9개 이상)
         elif s_count >= 9 or text.count('ㅆ') >= 9:
-            mz_congrats = [
-                "개나이스! 앙 기모링~~ 폼 미쳤다이! 🔥",
-                "추카드립니더 ㅅㅅㅅ 오늘 저녁은 소고기 가즈아~ 🥩",
-                "와 찢었다;; 레전드 갱신 ㅊㅋㅊㅋ 🚀",
-                "대박사건 ㄷㄷ 완전 럭키비키잔앙~ 🍀 축하드려요!",
-                "캬 취한다~~ 이븐하게 잘 익었네요 ㅊㅋㅊㅋ 🍻",
-                "진짜 개지렸다;; 축하드립니다 앙 기모띠~~ 😎",
-                "오우야 축하드립니다!! 떡상 가즈아아아 📈",
-                "나이스샷~~! 폼 진짜 도라방스네요 ㅊㅋㅊㅋ 🎉🎉",
-                "미쳤다 미쳤어! 지려버렸고~ 축하드립니당 ㅅㅅㅅ 🥳",
-                "폼 미쳤다 ㄷㄷ 오늘 텐션 폼 찢었네요 축하축하! 💯"
-            ]
+            mz_congrats = ["개나이스! 앙 기모링~~ 폼 미쳤다이! 🔥", "추카드립니더 ㅅㅅㅅ 오늘 저녁은 소고기 가즈아~ 🥩", "와 찢었다;; 레전드 갱신 ㅊㅋㅊㅋ 🚀", "대박사건 ㄷㄷ 완전 럭키비키잔앙~ 🍀 축하드려요!", "캬 취한다~~ 이븐하게 잘 익었네요 ㅊㅋㅊㅋ 🍻", "진짜 개지렸다;; 축하드립니다 앙 기모띠~~ 😎", "오우야 축하드립니다!! 떡상 가즈아아아 📈", "나이스샷~~! 폼 진짜 도라방스네요 ㅊㅋㅊㅋ 🎉🎉", "미쳤다 미쳤어! 지려버렸고~ 축하드립니당 ㅅㅅㅅ 🥳", "폼 미쳤다 ㄷㄷ 오늘 텐션 폼 찢었네요 축하축하! 💯"]
             return await update.message.reply_text(random.choice(mz_congrats), parse_mode="HTML")
 
     # [점메추]
@@ -215,11 +202,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         city = parts[1] if len(parts) > 1 else "수원"
         res = await get_realtime_weather(city)
         return await update.message.reply_text(res, parse_mode="HTML")
-
-    # [니노 감시 - 스포일러 답장]
-    if "니노" in text or "니노" in cap_html:
-        if not update.message.from_user.is_bot:
-            return await update.message.reply_text("<tg-spoiler>님 ㅇㅂ?..</tg-spoiler>", parse_mode="HTML")
 
     # [주사위]
     if text in ["/주사위", "!주사위"]:
@@ -264,7 +246,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
 
-# 10. 명령어 저장 로직
+# 9. 명령어 저장 로직
 async def save_logic(m_id, chat_id, context):
     global db, message_counter
     await asyncio.sleep(2.5)
@@ -281,15 +263,13 @@ async def save_logic(m_id, chat_id, context):
             msg, btn = content, ""
             if "---" in content: msg, btn = content.rsplit("---", 1)
             clean_btn = re.sub('<[^<]+?>', '', btn).strip()
-            
             db[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": clean_btn}
             save_db({"commands": db, "counter": message_counter})
             await context.bot.send_message(chat_id, f"✅ [{key}] 등록 완료!")
-        except Exception as e:
-            logging.error(f"저장 에러: {e}")
+        except Exception as e: logging.error(f"저장 에러: {e}")
         del media_group_cache[m_id]
 
-# 11. 콜백 핸들러
+# 10. 콜백 핸들러
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, message_counter
     query = update.callback_query
@@ -300,7 +280,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_db({"commands": db, "counter": message_counter})
             await query.edit_message_text(f"🗑️ [{cmd}] 삭제 완료.")
 
-# 12. 실행
+# 11. 실행
 if __name__ == "__main__":
     if TOKEN:
         threading.Thread(target=run_flask, daemon=True).start()
