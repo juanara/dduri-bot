@@ -45,7 +45,7 @@ media_group_cache = {}
 # 4. 실시간 날씨 함수
 async def get_realtime_weather(city_input="수원"):
     if not WEATHER_API_KEY:
-        return "❌ Render 환경변수에 WEATHER_API_KEY를 등록해주세요."
+        return "❌ Render 환경변수에 WEATHER_API_KEY를 등록해주세요"
     city_map = {
         "수원": "Suwon", "서울": "Seoul", "인천": "Incheon", 
         "부산": "Busan", "대구": "Daegu", "대전": "Daejeon", 
@@ -66,9 +66,8 @@ async def get_realtime_weather(city_input="수원"):
                     f"🌡️ <b>현재 기온:</b> {temp}°C\n"
                     f"🤔 <b>체감 온도:</b> {feels_like}°C\n"
                     f"📝 <b>날씨 상태:</b> {weather_desc}\n\n"
-                    f"✨ <i>조회 시간 기준 실시간 정보입니다.</i>")
-        elif data.get("cod") == 401: return "⚠️ API 키 활성화 대기 중 (1~2시간 소요)"
-        else: return f"❌ '{city_input}' 지역을 찾을 수 없습니다."
+                    f"✨ 실시간 정보입니다")
+        return "❌ 지역을 찾을 수 없습니다"
     except: return "⚠️ 날씨 서버 연결 오류"
 
 # 5. 점심 메뉴 추천
@@ -83,7 +82,7 @@ def get_lunch_recommendation():
     ]
     category, items = random.choice(menu_list)
     menu = random.choice(items)
-    comments = ["오늘 이거 먹으면 기분 최고! 🔥", "탁월한 선택이네요! 맛있게 드세요. 😋", "결정하기 힘들 땐 역시 이게 최고죠! ✨", "든든하게 드시고 기운 내세요! 💪"]
+    comments = ["오늘 이거 먹으면 기분 최고! 🔥", "탁월한 선택이네요! 😋", "결정하기 힘들 땐 역시 이게 최고죠! ✨", "든든하게 드시고 기운 내세요! 💪"]
     return (f"🍴 <b>오늘의 점심 추천</b>\n\n종류: <b>{category}</b>\n메뉴: <b>{menu}</b>\n\n💬 <i>{random.choice(comments)}</i>")
 
 # 6. 주사위 확률
@@ -113,7 +112,7 @@ async def send_custom_output(context, chat_id, data, title=""):
             else:
                 media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(fid) for fid in photos[1:]]
                 await context.bot.send_media_group(chat_id, media)
-                if markup: await context.bot.send_message(chat_id, "⚡️ **아래 버튼을 확인하세요**", reply_markup=markup, parse_mode="HTML")
+                if markup: await context.bot.send_message(chat_id, "⚡️ 아래 버튼 확인", reply_markup=markup, parse_mode="HTML")
         else:
             if len(photos) == 1: await context.bot.send_photo(chat_id, photos[0])
             else: await context.bot.send_media_group(chat_id, [InputMediaPhoto(fid) for fid in photos])
@@ -127,8 +126,7 @@ async def delete_messages_later(context: ContextTypes.DEFAULT_TYPE, chat_id: int
         if msg_id:
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            except Exception as e:
-                pass 
+            except: pass 
 
 # 8. 메인 메시지 핸들러
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -142,42 +140,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
     if not update.message.from_user.is_bot:
-        # ⭐ [하우돈 검거 로직 (2.5초 뒤 삭제)] ⭐
+        # ⭐ [하우돈 검거 로직 (2.5초 삭제)] ⭐
         banned_words = ["니노", "노무현", "무현", "노무"]
         if any(word in text for word in banned_words) or any(word in cap_html for word in banned_words):
-            hawoodon_responses = [
-                "베충아!! 우도나!! ㅋㅋㅋ", "또 우도니너지?! 🤨", "아이고 우돈아 또 시작이냐 ㅋㅋㅋ", "하우돈 검거 완료 👮‍♂️",
-                "우도니 폼 미쳤네 ㅋㅋㅋ 제발 멈춰!", "이거 100% 하우돈이다 ㅋㅋㅋㅋ", "우돈아 밥은 먹고 다니냐 🍚",
-                "하우돈 또 너야? ㅋㅋㅋㅋ", "우도니 뇌절 멈춰! 🛑", "우돈아 제발 여기서 이러지 마 ㅋㅋㅋ",
-                "베충이인 척 하는 우도니 검거 ㅋㅋㅋ", "하우돈 형님 텐션 자제 좀요 ㅋㅋㅋ", "우도니 또 선 넘네 ㅋㅋㅋㅋ ✂️",
-                "이건 빼박 하우돈 솜씨다 ㅋㅋㅋ", "우돈아... 형이 많이 참았다 ^^", "하우돈 또 장난치네 ㅋㅋㅋㅋ 으이구",
-                "우돈이 오늘 심심한가 보네 ㅋㅋㅋ", "아오 하우돈 또 왔네 ㅋㅋㅋㅋ ㄲㅈ~", "우도니 꿀밤 마렵네 ㅋㅋㅋㅋ 👊",
-                "하우돈 지분율 무엇 ㅋㅋㅋㅋ 또 너냐!"
-            ]
+            hawoodon_responses = ["베충아!! 우도나!! ㅋㅋㅋ", "또 우도니너지?! 🤨", "아이고 우돈아 또 시작이냐 ㅋㅋㅋ", "하우돈 검거 완료 👮‍♂️", "우도니 폼 미쳤네 ㅋㅋㅋ", "하우돈 또 너야? ㅋㅋㅋㅋ", "우도니 뇌절 멈춰! 🛑"]
             reply_text = f"<tg-spoiler>{random.choice(hawoodon_responses)}</tg-spoiler>"
             bot_reply = await update.message.reply_text(reply_text, parse_mode="HTML")
-            
             sticker_msg = None
             udon_stickers = ["2.webm", "2.webp", "3.webp"]
-            chosen_sticker = random.choice(udon_stickers)
-            
-            if os.path.exists(chosen_sticker):
+            chosen = random.choice(udon_stickers)
+            if os.path.exists(chosen):
                 try:
-                    with open(chosen_sticker, "rb") as f:
-                        sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
-                except Exception as e: logging.error(f"스티커 에러: {e}")
-
-            msgs_to_delete = [update.message.message_id, bot_reply.message_id]
-            if sticker_msg: msgs_to_delete.append(sticker_msg.message_id)
-            
-            asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_delete, 2.5))
+                    with open(chosen, "rb") as f: sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
+                except: pass
+            msgs = [update.message.message_id, bot_reply.message_id]
+            if sticker_msg: msgs.append(sticker_msg.message_id)
+            asyncio.create_task(delete_messages_later(context, chat_id, msgs, 2.5))
             return 
 
-        # ⭐ [분부니/뷰니 음성 지원 및 3초 뒤 모두 삭제 (2초 재생 + 1초 대기)] ⭐
+        # ⭐ [분부니/뷰니 찬양 (3초 삭제: 재생 2s + 대기 1s)] ⭐
         s_count = text.count('ㅅ')
-        if "분부니" in text and s_count >= 6:
-            bunbuni_congrats = ["대여왕 분부니 강림!!! ㅅㅅㅅㅅ 폼 미쳤다이! 👑", "킹왕짱 분부니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 👸", "분부니 폼 도라방스;; 완전 럭키비키잔앙~ 🍀", "갓부니 찬양하라!! 오늘 텐션 개찢었네 ㅅㅅㅅ 🔥", "분부니 여왕님 나이스샷~!! 축하드립니당 🥳", "크~ 역시 대여왕 클라스! 지려버렸고~ 🚀", "분부니 기모띠~~ 오늘 저녁은 소고기 가즈아 🥩", "빛부니 ㄷㄷ 진짜 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 💯", "분부니 여왕님 폼 미쳤다!! 앙 기모링~~ 👑", "와 찢었다;; 분부니 레전드 갱신 ㅊㅋㅊㅋ 🎉"]
-            bot_reply = await update.message.reply_text(random.choice(bunbuni_congrats), parse_mode="HTML")
+        if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
+            if "분부니" in text:
+                congrats = ["대여왕 분부니 강림!!! ㅅㅅㅅㅅ 폼 미쳤다이! 👑", "킹왕짱 분부니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 👸", "분부니 폼 도라방스;; 🍀", "분부니 여왕님 나이스샷~!! 축하드립니당 🥳"]
+            else:
+                congrats = ["뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑", "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀", "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥", "뷰코뷰코니 폼 미쳤다이!! 🥳"]
+            
+            bot_reply = await update.message.reply_text(random.choice(congrats), parse_mode="HTML")
             
             sticker_msg = None
             if os.path.exists("1.webm"):
@@ -190,86 +179,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     with open("1.ogg", "rb") as f: audio_msg = await context.bot.send_voice(chat_id=chat_id, voice=f)
                 except: pass
-            elif os.path.exists("1.mp3"):
-                try:
-                    with open("1.mp3", "rb") as f: audio_msg = await context.bot.send_audio(chat_id=chat_id, audio=f)
-                except: pass
             
-            # 오디오 듣는 시간 2초 + 대기 1초 = 3.0초 후 삭제
-            msgs_to_delete = [update.message.message_id, bot_reply.message_id]
-            if sticker_msg: msgs_to_delete.append(sticker_msg.message_id)
-            if audio_msg: msgs_to_delete.append(audio_msg.message_id)
-            asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_delete, 3.0))
-            return
-
-        elif "뷰니" in text and s_count >= 5:
-            vyuni_congrats = ["뷰코뷰코니!! 우리 여왕님 폼 찢었다 ㅅㅅㅅㅅ 👑", "갓뷰니 등장!! 완전 럭키비키잔앙~~ 🍀", "대여왕 뷰니 찬양하라!! 폼 도라방스;; 🔥", "뷰니 여왕님 나이스!! 앙 기모링~~ 👸", "캬~ 역시 뷰니 클라스! 지려버렸고~ 🚀", "뷰코뷰코니 폼 미쳤다이!! 축하드립니당 🥳", "뷰니 여왕님 충성충성 ^^7 ㅅㅅㅅㅅ 💯", "빛뷰니 ㄷㄷ 미친 텐션 ㅊㅋㅊㅋ ㅅㅅㅅ 🎉", "뷰니 폼 미쳤다!! 오늘 저녁은 소고기 가즈아 🥩", "와 찢었다;; 뷰니 여왕님 레전드 갱신 ㅊㅋㅊㅋ 👑"]
-            bot_reply = await update.message.reply_text(random.choice(vyuni_congrats), parse_mode="HTML")
-            
-            sticker_msg = None
-            if os.path.exists("1.webm"):
-                try:
-                    with open("1.webm", "rb") as f: sticker_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
-                except: pass
-                
-            audio_msg = None
-            if os.path.exists("1.ogg"):
-                try:
-                    with open("1.ogg", "rb") as f: audio_msg = await context.bot.send_voice(chat_id=chat_id, voice=f)
-                except: pass
-            elif os.path.exists("1.mp3"):
-                try:
-                    with open("1.mp3", "rb") as f: audio_msg = await context.bot.send_audio(chat_id=chat_id, audio=f)
-                except: pass
-            
-            msgs_to_delete = [update.message.message_id, bot_reply.message_id]
-            if sticker_msg: msgs_to_delete.append(sticker_msg.message_id)
-            if audio_msg: msgs_to_delete.append(audio_msg.message_id)
-            asyncio.create_task(delete_messages_later(context, chat_id, msgs_to_delete, 3.0))
+            msgs = [update.message.message_id, bot_reply.message_id]
+            if sticker_msg: msgs.append(sticker_msg.message_id)
+            if audio_msg: msgs.append(audio_msg.message_id)
+            asyncio.create_task(delete_messages_later(context, chat_id, msgs, 3.0))
             return
 
         elif "무욱자" in text and s_count >= 4:
-            muukja_congrats = ["우욱자갓 ㅅㅅㅅㅅㅅㅅㅅ 미친 폼 도라방스!! 🔥", "무욱자 폼 미쳤다이!! 완전 럭키비키잔앙~ 🍀", "갓욱자 등장!! 앙 기모링~~ ㅊㅋㅊㅋ 🚀", "무욱자 지려버렸고~~! 오늘 텐션 찢었다 ㅅㅅㅅ 💯", "캬 취한다~~ 우욱자갓 나이스샷!! 🎉"]
+            muukja_congrats = ["우욱자갓 ㅅㅅㅅㅅㅅㅅㅅ 미친 폼 도라방스!! 🔥", "무욱자 폼 미쳤다이!! 🍀", "갓욱자 등장!! 앙 기모링~~ 🚀"]
             await update.message.reply_text(random.choice(muukja_congrats), parse_mode="HTML")
             return 
 
         elif s_count >= 9 or text.count('ㅆ') >= 9:
-            mz_congrats = ["개나이스! 앙 기모링~~ 폼 미쳤다이! 🔥", "추카드립니더 ㅅㅅㅅ 오늘 저녁은 소고기 가즈아~ 🥩", "와 찢었다;; 레전드 갱신 ㅊㅋㅊㅋ 🚀", "대박사건 ㄷㄷ 완전 럭키비키잔앙~ 🍀 축하드려요!", "캬 취한다~~ 이븐하게 잘 익었네요 ㅊㅋㅊㅋ 🍻", "진짜 개지렸다;; 축하드립니다 앙 기모띠~~ 😎", "오우야 축하드립니다!! 떡상 가즈아아아 📈", "나이스샷~~! 폼 진짜 도라방스네요 ㅊㅋㅊㅋ 🎉🎉", "미쳤다 미쳤어! 지려버렸고~ 축하드립니당 ㅅㅅㅅ 🥳", "폼 미쳤다 ㄷㄷ 오늘 텐션 폼 찢었네요 축하축하! 💯"]
+            mz_congrats = ["개나이스! 앙 기모링~~ 폼 미쳤다이! 🔥", "추카드립니더 ㅅㅅㅅ 오늘 저녁은 소고기 가즈아~ 🥩", "와 찢었다;; 레전드 갱신 ㅊㅋㅊㅋ 🚀", "대박사건 ㄷㄷ 완전 럭키비키잔앙~ 🍀", "나이스샷~~! 폼 진짜 도라방스네요 ㅊㅋㅊㅋ 🎉🎉"]
             await update.message.reply_text(random.choice(mz_congrats), parse_mode="HTML")
             return
 
-    # [점메추]
+    # [점메추 / 날씨 / 주사위 / 명령어 / 카운팅 - 기존과 동일]
     if text.startswith("/점메추"):
-        res = get_lunch_recommendation()
-        return await update.message.reply_text(res, parse_mode="HTML")
-
-    # [실시간 날씨]
+        return await update.message.reply_text(get_lunch_recommendation(), parse_mode="HTML")
     if text.startswith("/날씨"):
         parts = text.split()
         city = parts[1] if len(parts) > 1 else "수원"
         res = await get_realtime_weather(city)
         return await update.message.reply_text(res, parse_mode="HTML")
-
-    # [주사위]
     if text in ["/주사위", "!주사위"]:
-        res = get_weighted_dice()
+        res, name = get_weighted_dice(), html.escape(update.message.from_user.first_name)
         icon = "💎" if res >= 40000 else "🔥" if res >= 10000 else "🎲"
-        name = html.escape(update.message.from_user.first_name)
         return await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{res:,}</b>", parse_mode="HTML")
 
-    # [관리자 전용 - 1:1 대화]
     if uid == ADMIN_ID and is_private:
-        if text == "/카운트확인":
-            return await update.message.reply_text(f"📊 현재 카운트: <b>{message_counter}</b>", parse_mode="HTML")
+        if text == "/카운트확인": return await update.message.reply_text(f"📊 카운트: <b>{message_counter}</b>", parse_mode="HTML")
         if text == "/카운트리로드":
             message_counter = 0
             save_db({"commands": db, "counter": message_counter})
-            return await update.message.reply_text("🔢 카운트 초기화 완료")
+            return await update.message.reply_text("🔢 초기화 완료")
         if text in ["/리스트", "/삭제"]:
-            if not db: return await update.message.reply_text("❌ 등록된 명령어 없음")
+            if not db: return await update.message.reply_text("❌ 데이터 없음")
             btns = [[InlineKeyboardButton(f"🗑️ {k} 삭제", callback_data=f"del_{k}")] for k in db.keys()]
             return await update.message.reply_text("📋 삭제 리스트:", reply_markup=InlineKeyboardMarkup(btns))
-        
         if update.message.photo:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
             if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
@@ -279,43 +228,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, update.message.chat_id, context))
             return
 
-    # [카운팅 - 그룹방 전용]
     if not is_private and not text.startswith(('/', '!')) and not cap_html.startswith('/'):
         message_counter += 1
         if message_counter % 100 == 0: save_db({"commands": db, "counter": message_counter})
         if message_counter > 0 and message_counter % 5000 == 0:
-            if "_event_celebration_" in db:
-                await send_custom_output(context, update.message.chat_id, db["_event_celebration_"], f"🎊 {message_counter}번째 당첨! 🎊")
+            if "_event_celebration_" in db: await send_custom_output(context, update.message.chat_id, db["_event_celebration_"], f"🎊 {message_counter}번째 당첨! 🎊")
 
-    # [사용자 명령어 실행]
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         if cmd in db: await send_custom_output(context, update.message.chat_id, db[cmd])
 
-# 9. 명령어 저장 로직
 async def save_logic(m_id, chat_id, context):
     global db, message_counter
     await asyncio.sleep(2.5)
     if m_id in media_group_cache:
         target, raw_cap = media_group_cache[m_id], media_group_cache[m_id]["caption"]
         try:
-            if "/이벤트설정" in raw_cap:
-                key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
+            if "/이벤트설정" in raw_cap: key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
             else:
                 match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_cap, re.IGNORECASE | re.DOTALL)
                 if match: key, content = match.group(1), match.group(2)
                 else: return
-            
             msg, btn = content, ""
             if "---" in content: msg, btn = content.rsplit("---", 1)
-            clean_btn = re.sub('<[^<]+?>', '', btn).strip()
-            db[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": clean_btn}
+            db[key] = {"photos": target["ids"], "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
             save_db({"commands": db, "counter": message_counter})
-            await context.bot.send_message(chat_id, f"✅ [{key}] 등록 완료!")
-        except Exception as e: logging.error(f"저장 에러: {e}")
+            await context.bot.send_message(chat_id, f"✅ [{key}] 등록 완료")
+        except: pass
         del media_group_cache[m_id]
 
-# 10. 콜백 핸들러
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db, message_counter
     query = update.callback_query
@@ -324,9 +265,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if cmd in db:
             del db[cmd]
             save_db({"commands": db, "counter": message_counter})
-            await query.edit_message_text(f"🗑️ [{cmd}] 삭제 완료.")
+            await query.edit_message_text(f"🗑️ [{cmd}] 삭제 완료")
 
-# 11. 실행
 if __name__ == "__main__":
     if TOKEN:
         threading.Thread(target=run_flask, daemon=True).start()
