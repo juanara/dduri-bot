@@ -65,7 +65,7 @@ db_commands = current_data.get("commands", {})
 message_counter = current_data.get("counter", 0)
 media_group_cache = {}
 
-# 4. 실시간 날씨 함수 (한글 패치)
+# 4. 실시간 날씨 함수 (한글 도시 패치)
 async def get_realtime_weather(city_input="수원"):
     if not WEATHER_API_KEY: return "❌ API_KEY 누락"
     city_map = {
@@ -81,7 +81,7 @@ async def get_realtime_weather(city_input="수원"):
         return f"❌ '{city_input}' 지역 찾기 실패"
     except: return "⚠️ 오류"
 
-# 5. 메뉴 추천 로직 (스타벅스 & 아/점/저 30선)
+# 5. 메뉴 추천 로직 (스타벅스 30선 & 식사 30선)
 def get_menu_recommendation(command):
     starbucks_30 = ["아이스 아메리카노", "카페 라떼", "자몽 허니 블랙 티", "돌체 라떼", "콜드 브루", "바닐라 크림 콜드 브루", "자바 칩 프라푸치노", "쿨 라임 피지오", "화이트 초콜릿 모카", "카라멜 마키아또", "제주 유기농 말차 라떼", "민트 초콜릿 칩 블렌디드", "더블 에스프레소 칩 프라푸치노", "에스프레소 프라푸치노", "바닐라 플랫 화이트", "카페 모카", "카푸치노", "얼 그레이 티 라떼", "블랙 티 레모네이드 피지오", "핑크 드링크 위드 딸기 아사이", "딸기 아사이 레모네이드", "망고 패션 티 블렌디드", "유자 패션 피지오", "돌체 블랙 밀크 티", "차이 티 라떼", "블론드 바닐라 더블 샷 마키아또", "클래식 밀크 티", "피스타치오 크림 콜드 브루", "오늘의 커피", "바닐라 더블 샷"]
     breakfast_30 = ["토스트", "북어국", "맥모닝", "전복죽", "시리얼", "에그드랍", "샌드위치", "사과와 요거트", "누룽지", "김밥", "프렌치 토스트", "콩나물국밥", "바나나", "베이글", "순두부찌개", "단호박죽", "샐러드", "소고기무국", "주먹밥", "미역국", "잉글리쉬 머핀", "시금치된장국", "가래떡 구이", "찐고구마", "스크램블 에그", "감자스프", "블루베리 베이글", "누드김밥", "누룽지탕", "떡국"]
@@ -145,7 +145,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(chat_id, " ".join(mentions), parse_mode="HTML")
                     await asyncio.sleep(0.5)
                 return
-            
             if text_lower == "/리스트":
                 if is_private:
                     all_rooms = col_members.find()
@@ -156,20 +155,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     members = get_members(chat_id)
                     return await update.message.reply_text(f"📋 <b>소통 VIP 회원수</b>\n\n🏠 <b>{chat_title}</b>\n인원: {len(members)}명", parse_mode="HTML")
 
-        # [수정] 하우돈 검거 필터 극강화 & 2초 광속 삭제 ⭐
-        bad_words = [
-            "니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하마을", "봉하",
-            "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", 
-            "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "이기야", "슨상님", "홍어", "통구이", "중력"
-        ]
+        # [필터링] 하우돈 검거 극강화 및 2초 광속 삭제 ⭐
+        bad_words = ["니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "이기야", "슨상님", "홍어", "통구이", "중력"]
         if any(w in text_lower for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
             s_msg = None
             if os.path.exists("2.webm"):
                 try: 
-                    with open("2.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
+                    with open("2.webm", "rb") as f:
+                        s_msg = await context.bot.send_sticker(chat_id, f)
                 except: pass
-            # 2초 뒤 광속 삭제!
+            # 2초 후 광속 삭제
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None)], 2.0))
             return 
 
@@ -180,10 +176,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rep = await update.message.reply_text(random.choice(queen_mentions), parse_mode="HTML")
             s_msg, a_msg = None, None
             if os.path.exists("1.webm"):
-                try: with open("1.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
+                try: 
+                    with open("1.webm", "rb") as f:
+                        s_msg = await context.bot.send_sticker(chat_id, f)
                 except: pass
             if os.path.exists("1.ogg"):
-                try: with open("1.ogg", "rb") as f: a_msg = await context.bot.send_voice(chat_id, f)
+                try: 
+                    with open("1.ogg", "rb") as f:
+                        a_msg = await context.bot.send_voice(chat_id, f)
                 except: pass
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None), (a_msg.message_id if a_msg else None)], 3.0))
             return
@@ -195,7 +195,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             accel_mentions = ["폼 미쳤다ㄷㄷ 오늘 텐션 개오짐!! 🔥", "완전 럭키비키잖아!! 오늘 되는 날임? ✨", "이거지ㅋㅋ 분위기 찢었다!! 가즈아아아아!! 🚀", "도파민 폭발함!! 🧨", "갓벽하다 진짜ㅋㅋ 분위기 미쳤다ㄷㄷ 💎"]
             return await update.message.reply_text(random.choice(accel_mentions))
 
-    # 메뉴/날씨 추천 (5초 삭제)
+    # 메뉴/날씨 (5초 삭제)
     if any(text_lower.startswith(c) for c in ["/아메추", "/점메추", "/저메추", "/커추", "/간추", "/날씨"]):
         res = await get_realtime_weather(text.split()[1]) if text_lower.startswith("/날씨") and len(text.split()) > 1 else (await get_realtime_weather("수원") if text_lower.startswith("/날씨") else get_menu_recommendation(text_lower))
         rep = await update.message.reply_text(res, parse_mode="HTML")
@@ -210,7 +210,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 10.0))
         return
 
-    # 관리자 전용 DM 기능
+    # 관리자 기능
     if uid == ADMIN_ID and is_private:
         if text == "/카운트리로드":
             message_counter = 0
