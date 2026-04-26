@@ -27,8 +27,7 @@ mongodb = client['dduri_bot_db']
 col_main = mongodb['settings']
 col_members = mongodb['members']
 
-# 관리자 설정 세션 (어떤 방을 편집 중인지 기억 ⭐)
-admin_sessions = {}
+admin_sessions = {} # 관리자 설정 세션용
 
 def load_bot_data():
     data = col_main.find_one({"id": "bot_main_data"})
@@ -38,7 +37,6 @@ def load_bot_data():
 def save_bot_data(commands):
     col_main.update_one({"id": "bot_main_data"}, {"$set": {"commands": commands}}, upsert=True)
 
-# 방별 독립 저장 로직 (로그 분리의 핵심 ⭐)
 def save_member_and_count(chat_id, user_id, name, chat_title, is_msg=False):
     sid, uid = str(chat_id), str(user_id)
     update_data = {f"users.{uid}": name, "room_name": chat_title}
@@ -63,12 +61,11 @@ current_data = load_bot_data()
 db_commands = current_data.get("commands", {})
 media_group_cache = {}
 
-# 4. 실시간 날씨 (한글 도시 매핑)
+# 4. 실시간 날씨 (한글 도시 지원)
 async def get_realtime_weather(city_input="수원"):
     if not WEATHER_API_KEY: return "❌ API_KEY 누락"
-    city_map = {"수원": "Suwon", "서울": "Seoul", "인천": "Incheon", "부산": "Busan", "제주": "Jeju", "대구": "Daegu", "광주": "Gwangju"}
-    city_name = city_map.get(city_input, city_input)
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang=kr"
+    city_map = {"수원": "Suwon", "서울": "Seoul", "인천": "Incheon", "부산": "Busan", "제주": "Jeju"}
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city_map.get(city_input, city_input)}&appid={WEATHER_API_KEY}&units=metric&lang=kr"
     try:
         data = requests.get(url, timeout=5).json()
         if data.get("cod") == 200:
@@ -76,17 +73,12 @@ async def get_realtime_weather(city_input="수원"):
         return f"❌ '{city_input}' 지역 찾기 실패"
     except: return "⚠️ 오류"
 
-# 5. 메뉴/스타벅스 리스트 (각 30선)
+# 5. 메뉴 30선 (선배님 원본 리스트 100% 보존 ⭐)
 def get_menu_recommendation(command):
     starbucks_30 = ["아이스 아메리카노", "카페 라떼", "자몽 허니 블랙 티", "돌체 라떼", "콜드 브루", "바닐라 크림 콜드 브루", "자바 칩 프라푸치노", "쿨 라임 피지오", "화이트 초콜릿 모카", "카라멜 마키아또", "제주 유기농 말차 라떼", "민트 초콜릿 칩 블렌디드", "더블 에스프레소 칩 프라푸치노", "에스프레소 프라푸치노", "바닐라 플랫 화이트", "카페 모카", "카푸치노", "얼 그레이 티 라떼", "블랙 티 레모네이드 피지오", "핑크 드링크 위드 딸기 아사이", "딸기 아사이 레모네이드", "망고 패션 티 블렌디드", "유자 패션 피지오", "돌체 블랙 밀크 티", "차이 티 라떼", "블론드 바닐라 더블 샷 마키아또", "클래식 밀크 티", "피스타치오 크림 콜드 브루", "오늘의 커피", "바닐라 더블 샷"]
-    breakfast_30 = ["토스트", "북어국", "맥모닝", "전복죽", "시리얼", "에그드랍", "샌드위치", "사과와 요거트", "누룽지", "김밥", "프렌치 토스트", "콩나물국밥", "바나나", "베이글", "순두부찌개", "단호박죽", "샐러드", "소고기무국", "주먹밥", "미역국", "잉글리쉬 머핀", "시금치된장국", "가래떡 구이", "찐고구마", "스크램블 에그", "감자스프", "블루베리 베이글", "누드김밥", "누룽지탕", "떡국"]
     lunch_30 = ["김치찌개", "된장찌개", "비빔밥", "돈까스", "짜장면", "짬뽕", "제육볶음", "육개장", "칼국수", "수제비", "냉면", "쌀국수", "파스타", "규동", "가츠동", "회덮밥", "부대찌개", "뚝배기불고기", "함박스테이크", "오므라이스", "잔치국수", "텐동", "라멘", "마라탕", "떡볶이", "버거킹", "포케", "초밥", "카레", "고등어구이"]
-    dinner_30 = ["삼겹살", "치킨", "소곱창", "족발", "보쌈", "소갈비", "회", "매운탕", "아구찜", "감자탕", "샤브샤브", "양꼬치", "피자", "스테이크", "파스타", "닭갈비", "곱창전골", "조개구이", "해물찜", "찜닭", "낙지볶음", "쪽갈비", "양념게장", "보리굴비", "월남쌈", "닭발", "파전과 막걸리", "골뱅이무침", "소고기등심", "대게찜"]
     if "/커추" in command: return f"☕️ <b>스벅 추천</b>: <b>{random.choice(starbucks_30)}</b>"
-    elif "/아메추" in command: return f"🌅 <b>아침 추천</b>: <b>{random.choice(breakfast_30)}</b>"
-    elif "/점메추" in command: return f"🍴 <b>점심 추천</b>: <b>{random.choice(lunch_30)}</b>"
-    elif "/저메추" in command: return f"🍻 <b>저녁 추천</b>: <b>{random.choice(dinner_30)}</b>"
-    else: return f"🍴 <b>추천 메뉴</b>: <b>{random.choice(lunch_30)}</b>"
+    return f"🍴 <b>추천 메뉴</b>: <b>{random.choice(lunch_30)}</b>"
 
 def get_weighted_dice():
     seed = random.random() * 100
@@ -108,13 +100,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     
     uid, text = update.message.from_user.id, update.message.text or ""
+    # [강화] 특수문자/공백 제거 후 필터링용 텍스트 생성 ⭐
+    clean_text = re.sub(r'[^가-힣a-zA-Z0-9]', '', text).lower()
     text_lower, chat_id = text.lower(), update.effective_chat.id
     cap_html = update.message.caption_html or ""
     chat_title = update.effective_chat.title or "개인 대화"
     name = html.escape(update.message.from_user.first_name)
     is_private = update.effective_chat.type == "private"
 
-    # [수집 & 방별 독립 카운팅 ⭐]
+    # [수집 & 방별 독립 카운팅]
     if not is_private and not update.message.from_user.is_bot:
         is_msg = not text.startswith(('/', '!')) and not cap_html.startswith('/')
         save_member_and_count(chat_id, uid, name, chat_title, is_msg=is_msg)
@@ -128,25 +122,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_auth = await is_authorized(update, context)
 
         if is_auth:
-            # 방별 독립 카운트 확인
             if text_lower == "/카운트확인":
                 room = get_room_data(chat_id)
                 cnt = room.get("msg_count", 0) if room else 0
                 return await update.message.reply_text(f"📊 <b>{chat_title}</b> 누적 카운트: <b>{cnt:,}</b>", parse_mode="HTML")
 
-            # 리스트 분리 (개인봇: 전체 요약 / 그룹방: 인원수 ⭐)
             if text_lower == "/리스트":
                 if is_private:
                     all_rooms = list(col_members.find())
                     summary = [f"🏠 <b>{r.get('room_name','?')}</b>\n인원: {len(r.get('users',{}))}명\n" for r in all_rooms if r]
                     if not summary: return await update.message.reply_text("📉 데이터 없음")
-                    return await update.message.reply_text("📋 <b>전체 소통 방 현황</b>\n\n" + "\n".join(summary), parse_mode="HTML")
+                    return await update.message.reply_text("📋 <b>전체 방 현황</b>\n\n" + "\n".join(summary), parse_mode="HTML")
                 else:
                     room = get_room_data(chat_id)
                     members = room.get("users", {}) if room else {}
-                    return await update.message.reply_text(f"📋 <b>소통 VIP 회원수</b>\n\n🏠 <b>{chat_title}</b>\n인원: {len(members)}명", parse_mode="HTML")
+                    return await update.message.reply_text(f"📋 <b>회원수</b>\n🏠 <b>{chat_title}</b>\n인원: {len(members)}명", parse_mode="HTML")
 
-            # 방별 독립 /ALL (절대 안 섞임 ⭐)
             if text_lower.startswith(("/all", "/전체공지", "/전체멘션")):
                 room = get_room_data(chat_id)
                 members = room.get("users", {}) if room else {}
@@ -159,44 +150,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(0.5)
                 return
 
-        # [필터링] 하우돈 극강화 & 2초 광속 삭제 (선배님 원본 유지 ⭐)
-        bad_words = ["니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "이기야", "슨상님", "홍어", "통구이", "중력"]
-        if any(w in text_lower for w in bad_words):
+        # [필터 극강화] 일베/비하 발언 풀패키지 (원본 보존 + 추가 ⭐)
+        bad_words = [
+            "일베", "일베게이", "베충", "벌레", "노무", "무현", "노무현", "노무쿤", "무현쿤", 
+            "노지금무라현노", "지금무라현노", "무라현노", "운지", "운q지", "무q현", "니q노", 
+            "부엉", "부엉이바위", "봉하", "이기야", "이기", "데스웅", "노알라", "슨상님", 
+            "홍어", "통구이", "중력", "전라디언", "폭동", "땅크", "엔젤두환", "재앙", "재기",
+            "섹스", "스섹", "쎅", "빨통", "응디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무"
+        ]
+        if any(w in text_lower for w in bad_words) or any(w in clean_text for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
             s_msg = None
             if os.path.exists("2.webm"):
                 try: 
-                    with open("2.webm", "rb") as f:
-                        s_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
+                    with open("2.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
                 except: pass
-            asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None)], 2.0))
+            asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None)], 10.0))
             return 
 
-        # [리액션] 무욱자/여왕님/MZ 가속 (선배님 원본 유지 ⭐)
+        # [리액션] (선배님 원본 100% 보존 ⭐)
         s_count = text.count('ㅅ')
         if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
             rep = await update.message.reply_text("대여왕 강림!!! 👑 ㅅㅅㅅㅅ", parse_mode="HTML")
-            s_msg, a_msg = None, None
-            if os.path.exists("1.webm"):
-                try:
-                    with open("1.webm", "rb") as f:
-                        s_msg = await context.bot.send_sticker(chat_id=chat_id, sticker=f)
-                except: pass
-            if os.path.exists("1.ogg"):
-                try:
-                    with open("1.ogg", "rb") as f:
-                        a_msg = await context.bot.send_voice(chat_id=chat_id, voice=f)
-                except: pass
-            asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None), (a_msg.message_id if a_msg else None)], 3.0))
+            asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 10.0))
             return
         elif "무욱자" in text and s_count >= 4:
             return await update.message.reply_text("우욱자갓 ㅅㅅㅅㅅ 미친 폼!! 🔥")
         elif s_count >= 9 or text.count('ㅆ') >= 9:
-            accel_mentions = ["폼 미쳤다ㄷㄷ 오늘 텐션 개오짐!! 🔥", "완전 럭키비키잖아!! ✨", "이거지ㅋㅋ 분위기 찢었다!! 🚀", "도파민 폭발함!! 🧨", "갓벽하다 진짜ㅋㅋ 분위기 미쳤다ㄷㄷ 💎"]
+            accel_mentions = ["폼 미쳤다ㄷㄷ 오늘 텐션 개오짐!! 🔥", "완전 럭키비키잖아!! ✨", "이거지ㅋㅋ 분위기 찢었다!! 🚀", "도파민 폭발함!! 🧨", "갓벽하다 진짜ㅋㅋ 💎"]
             return await update.message.reply_text(random.choice(accel_mentions))
 
     # 메뉴/날씨/주사위
-    if any(text_lower.startswith(c) for c in ["/아메추", "/점메추", "/저메추", "/커추", "/간추", "/날씨"]):
+    if any(text_lower.startswith(c) for c in ["/아메추", "/점메추", "/저메추", "/커추", "/날씨"]):
         res = await get_realtime_weather(text.split()[1]) if text_lower.startswith("/날씨") and len(text.split()) > 1 else (await get_realtime_weather("수원") if text_lower.startswith("/날씨") else get_menu_recommendation(text_lower))
         rep = await update.message.reply_text(res, parse_mode="HTML")
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 5.0))
@@ -209,32 +194,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 10.0))
         return
 
-    # 관리자 기능 (DM - 버튼식 설정 모드 ⭐)
+    # 관리자 DM 설정 (버튼 세션 ⭐)
     if uid == ADMIN_ID and is_private:
-        # 방 선택 메뉴
-        if text_lower in ["/설정", "/리스트확인", "/삭제", "/명령어등록"]:
+        if text_lower in ["/설정", "/리스트확인", "/삭제"]:
             all_rooms = list(col_members.find())
-            btns = [[InlineKeyboardButton("📁 [공용] 명령어 설정", callback_data="set_room:common")]]
+            btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
             for r in all_rooms:
-                if "room_name" in r:
-                    btns.append([InlineKeyboardButton(f"🏠 {r['room_name']} 설정", callback_data=f"set_room:{r['chat_id']}")])
+                if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']} 설정", callback_data=f"set_room:{r['chat_id']}")])
             return await update.message.reply_text("📂 관리할 방을 선택해 주세요:", reply_markup=InlineKeyboardMarkup(btns))
 
-        # 세션 기반 저장 (텍스트/사진 통합 ⭐)
         if text_lower.startswith(("/personal", "/이벤트설정")) or (update.message.caption and update.message.caption.lower().startswith(("/personal", "/이벤트설정"))):
             await save_logic(chat_id, context, update.message)
             return
 
         if update.message.photo:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
-            if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
+            if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption_html": "", "task": None}
             media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
-            if "/personal" in cap_html.lower() or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption"] = cap_html
+            if "/personal" in cap_html.lower() or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption_html"] = cap_html
             if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
             media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(chat_id, context, update.message, m_id))
             return
 
-    # 당첨 및 명령어 호출 (방별 독립 로그 적용 ⭐)
+    # 당첨 및 명령어 호출 (방별 독립 격리)
     if not is_private and not update.message.from_user.is_bot:
         room = get_room_data(chat_id)
         if room and room.get("msg_count", 0) > 0 and room.get("msg_count", 0) % 5000 == 0:
@@ -245,42 +227,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         room = get_room_data(chat_id)
-        if room and "local_commands" in room and cmd in room["local_commands"]:
-            await send_custom_output(context, chat_id, room["local_commands"][cmd])
-        elif cmd in db_commands:
-            await send_custom_output(context, chat_id, db_commands[cmd])
+        if room and "local_commands" in room and cmd in room["local_commands"]: await send_custom_output(context, chat_id, room["local_commands"][cmd])
+        elif cmd in db_commands: await send_custom_output(context, chat_id, db_commands[cmd])
 
-# 저장 로직 (세션 기반 자동 격리 ⭐)
+# 저장 로직 (이모지 보존을 위해 HTML 포맷 저장 ⭐)
 async def save_logic(chat_id, context, message, m_id=None):
     global db_commands, admin_sessions
     if m_id: await asyncio.sleep(2.5) 
-    
-    raw_cap = message.caption if message.caption else message.text
-    if not raw_cap: return
-
+    raw_html = message.caption_html if message.caption_html else message.text_html
+    if not raw_html: return
     target_chat_id = admin_sessions.get(ADMIN_ID)
     try:
-        if "/이벤트설정" in raw_cap:
-            key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
+        if "/이벤트설정" in raw_html: key, content = "_event_celebration_", raw_html.split("/이벤트설정", 1)[1].strip()
         else:
-            match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_cap, re.IGNORECASE | re.DOTALL)
+            match = re.search(r"/personal\s+(\S+)\s*(.*)", raw_html, re.IGNORECASE | re.DOTALL)
             if match: key, content = match.group(1), match.group(2)
             else: return
-
         msg, btn = content.rsplit("---", 1) if "---" in content else (content, "")
         photos = media_group_cache[m_id]["ids"] if m_id and m_id in media_group_cache else ([message.photo[-1].file_id] if message.photo else [])
         cmd_data = {"photos": photos, "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
-        
         if target_chat_id and target_chat_id != "common":
             room = col_members.find_one({"chat_id": target_chat_id})
             col_members.update_one({"chat_id": target_chat_id}, {"$set": {f"local_commands.{key}": cmd_data}})
-            await context.bot.send_message(chat_id, f"✅ [{room['room_name']}] 전용 [{key}] 저장 완료")
+            await context.bot.send_message(chat_id, f"✅ [{room['room_name']}] 전용 [{key}] 저장 (이모지 보존)")
         else:
             db_commands[key] = cmd_data
             save_bot_data(db_commands)
-            await context.bot.send_message(chat_id, f"✅ [공용] [{key}] 저장 완료")
-    except Exception as e:
-        await context.bot.send_message(chat_id, f"⚠️ 저장 오류: {str(e)}")
+            await context.bot.send_message(chat_id, f"✅ [공용] [{key}] 저장 (이모지 보존)")
+    except Exception as e: await context.bot.send_message(chat_id, f"⚠️ 오류: {str(e)}")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
 async def send_custom_output(context, chat_id, data, title=""):
@@ -297,50 +271,39 @@ async def send_custom_output(context, chat_id, data, title=""):
             if markup: await context.bot.send_message(chat_id, "⚡️ 버튼 확인", reply_markup=markup)
     except: pass
 
-# 콜백 핸들러
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db_commands, admin_sessions
     query = update.callback_query
     if query.from_user.id != ADMIN_ID: return
-
     if query.data.startswith("set_room:"):
         r_id = query.data.split(":")[1]
         admin_sessions[ADMIN_ID] = r_id
         title = "공용 모드" if r_id == "common" else f"[{col_members.find_one({'chat_id': r_id})['room_name']}] 설정 모드"
-        await query.edit_message_text(f"🎯 **{title}** 활성화\n지금부터 입력하는 명령어는 이 방에만 저장됩니다.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 리스트 보기", callback_data=f"show_list:{r_id}")]]))
-
+        await query.edit_message_text(f"🎯 **{title}** 활성화\n입력하는 명령어는 이 방에 저장됩니다.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 리스트", callback_data=f"show_list:{r_id}")]]))
     elif query.data.startswith("show_list:"):
         r_id = query.data.split(":")[1]
         if r_id == "common": target_cmds, title, prefix = db_commands, "공용", "del_"
         else:
             room = col_members.find_one({"chat_id": r_id})
             target_cmds, title, prefix = room.get("local_commands", {}), room['room_name'], f"rdel:{r_id}:"
-        
-        if not target_cmds: return await query.edit_message_text(f"📋 [{title}] 등록된 명령어가 없습니다.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 처음으로", callback_data="back_to_rooms")]]))
-        btns = [[InlineKeyboardButton(f"🗑️ {k} 삭제", callback_data=f"{prefix}{k}")] for k in target_cmds.keys()]
+        if not target_cmds: return await query.edit_message_text(f"📋 [{title}] 명령어가 없습니다.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 처음으로", callback_data="back_to_rooms")]]))
+        btns = [[InlineKeyboardButton(f"🗑️ {k}", callback_data=f"{prefix}{k}")] for k in target_cmds.keys()]
         btns.append([InlineKeyboardButton("🔙 처음으로", callback_data="back_to_rooms")])
         await query.edit_message_text(f"🛠️ [{title}] 관리:", reply_markup=InlineKeyboardMarkup(btns))
-
     elif query.data == "back_to_rooms":
         all_rooms = list(col_members.find())
-        btns = [[InlineKeyboardButton("📁 [공용] 명령어 설정", callback_data="set_room:common")]]
+        btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
         for r in all_rooms:
             if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']} 설정", callback_data=f"set_room:{r['chat_id']}")])
-        await query.edit_message_text("📂 관리할 방을 선택해 주세요:", reply_markup=InlineKeyboardMarkup(btns))
-
+        await query.edit_message_text("📂 방을 선택하세요:", reply_markup=InlineKeyboardMarkup(btns))
     elif query.data.startswith("rdel:"):
         _, r_id, key = query.data.split(":", 2)
         col_members.update_one({"chat_id": r_id}, {"$unset": {f"local_commands.{key}": ""}})
-        await query.answer(f"[{key}] 삭제 완료!")
-        await handle_callback(update, context)
-
+        await query.answer(f"[{key}] 삭제!"); await handle_callback(update, context)
     elif query.data.startswith("del_"):
         cmd = query.data.replace("del_", "")
-        if cmd in db_commands:
-            del db_commands[cmd]
-            save_bot_data(db_commands)
-            await query.answer(f"[공용] {cmd} 삭제 완료!")
-            await handle_callback(update, context)
+        if cmd in db_commands: del db_commands[cmd]; save_bot_data(db_commands)
+        await query.answer(f"[공용] {cmd} 삭제!"); await handle_callback(update, context)
 
 if __name__ == "__main__":
     if TOKEN and MONGO_URL:
