@@ -111,7 +111,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = html.escape(update.message.from_user.first_name)
     is_private = update.effective_chat.type == "private"
 
-    # [수집 & 방별 독립 카운팅]
+    # [수집 & 방별 독립 카운팅 ⭐]
     if not is_private and not update.message.from_user.is_bot:
         is_msg = not text.startswith(('/', '!')) and not cap_html.startswith('/')
         save_member_and_count(chat_id, uid, name, chat_title, is_msg=is_msg)
@@ -125,11 +125,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_auth = await is_authorized(update, context)
 
         if is_auth:
+            # 방별 독립 카운트 확인
             if text_lower == "/카운트확인":
                 room = get_room_data(chat_id)
                 cnt = room.get("msg_count", 0) if room else 0
                 return await update.message.reply_text(f"📊 <b>{chat_title}</b> 누적 카운트: <b>{cnt:,}</b>", parse_mode="HTML")
 
+            # 리스트 분리 (개인봇: 전체 요약 / 그룹방: 간소화 ⭐)
             if text_lower == "/리스트":
                 if is_private:
                     all_rooms = col_members.find()
@@ -141,6 +143,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     members = room.get("users", {}) if room else {}
                     return await update.message.reply_text(f"📋 <b>소통 VIP 회원수</b>\n\n🏠 <b>{chat_title}</b>\n인원: {len(members)}명", parse_mode="HTML")
 
+            # 방별 독립 /ALL (절대 안 섞임 ⭐)
             if text_lower.startswith(("/all", "/전체공지", "/전체멘션")):
                 room = get_room_data(chat_id)
                 members = room.get("users", {}) if room else {}
@@ -153,8 +156,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(0.5)
                 return
 
-        # [필터링] 하우돈 극강화 & 2초 광속 삭제 (원본 필터 유지 ⭐)
-        bad_words = ["니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "이기야", "슨상님", "홍어", "통구이", "중력"]
+        # [필터링] 하우돈 극강화 & 2초 광속 삭제 ⭐
+        bad_words = ["니노", "노무현", "무현", "노무", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "이기야", "슨상님", "홍어", "통구이", "중력"]
         if any(w in text_lower for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
             s_msg = None
@@ -165,28 +168,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None)], 2.0))
             return 
 
-        # [리액션] 무욱자/여왕님/MZ 가속 (원본 리액션 유지 ⭐)
+        # [리액션] 무욱자/여왕님/MZ 가속 ⭐
         s_count = text.count('ㅅ')
         if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
             rep = await update.message.reply_text("대여왕 강림!!! 👑 ㅅㅅㅅㅅ", parse_mode="HTML")
             s_msg, a_msg = None, None
             if os.path.exists("1.webm"):
-                try: 
-                    with open("1.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
+                try: with open("1.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
                 except: pass
             if os.path.exists("1.ogg"):
-                try: 
-                    with open("1.ogg", "rb") as f: a_msg = await context.bot.send_voice(chat_id, f)
+                try: with open("1.ogg", "rb") as f: a_msg = await context.bot.send_voice(chat_id, f)
                 except: pass
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None), (a_msg.message_id if a_msg else None)], 3.0))
             return
         elif "무욱자" in text and s_count >= 4:
             return await update.message.reply_text("우욱자갓 ㅅㅅㅅㅅ 미친 폼!! 🔥")
         elif s_count >= 9 or text.count('ㅆ') >= 9:
-            accel_mentions = ["폼 미쳤다ㄷㄷ 오늘 텐션 개오짐!! 🔥", "완전 럭키비키잖아!! ✨", "이거지ㅋㅋ 분위기 찢었다!! 가즈아아아아!! 🚀", "도파민 폭발함!! 🧨", "갓벽하다 진짜ㅋㅋ 분위기 미쳤다ㄷㄷ 💎"]
+            accel_mentions = ["폼 미쳤다ㄷㄷ 오늘 텐션 개오짐!! 🔥", "완전 럭키비키잖아!! ✨", "이거지ㅋㅋ 분위기 찢었다!! 🚀", "도파민 폭발함!! 🧨", "갓벽하다 진짜ㅋㅋ 💎"]
             return await update.message.reply_text(random.choice(accel_mentions))
 
-    # 메뉴/날씨/주사위 (5~10초 삭제 원본 유지)
+    # 메뉴/날씨/주사위
     if any(text_lower.startswith(c) for c in ["/아메추", "/점메추", "/저메추", "/커추", "/간추", "/날씨"]):
         res = await get_realtime_weather(text.split()[1]) if text_lower.startswith("/날씨") and len(text.split()) > 1 else (await get_realtime_weather("수원") if text_lower.startswith("/날씨") else get_menu_recommendation(text_lower))
         rep = await update.message.reply_text(res, parse_mode="HTML")
@@ -200,16 +201,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 10.0))
         return
 
-    # 관리자 기능 (DM - 신규 버튼 로직 적용 ⭐)
+    # 관리자 기능 (DM - 텍스트/사진 통합 저장 및 버튼 추가 ⭐)
     if uid == ADMIN_ID and is_private:
+        # [신규] 방별 리스트 관리 버튼 시스템
         if text_lower in ["/리스트확인", "/삭제"]:
             all_rooms = list(col_members.find())
             btns = [[InlineKeyboardButton("📁 [공용] 명령어", callback_data="show_common")]]
             for r in all_rooms:
-                if "room_name" in r:
-                    btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"rlist:{r['chat_id']}")])
-            if not btns: return await update.message.reply_text("📉 등록된 방 데이터가 없습니다.")
+                if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"rlist:{r['chat_id']}")])
             return await update.message.reply_text("📂 관리할 방을 선택해 주세요:", reply_markup=InlineKeyboardMarkup(btns))
+
+        # [신규] 사진 없이 텍스트로만 저장 시 처리
+        if text_lower.startswith(("/personal", "/이벤트설정")):
+            await save_logic(None, chat_id, context, update.message)
+            return
 
         if update.message.photo:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
@@ -217,7 +222,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
             if "/personal" in cap_html.lower() or "/이벤트설정" in cap_html: media_group_cache[m_id]["caption"] = cap_html
             if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
-            media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, chat_id, context))
+            media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(m_id, chat_id, context, update.message))
             return
 
     # 당첨 및 명령어 호출 (방별 독립 로그 적용 ⭐)
@@ -236,56 +241,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif cmd in db_commands:
             await send_custom_output(context, chat_id, db_commands[cmd])
 
-# 저장 로직 (따옴표 지원 ⭐)
-async def save_logic(m_id, chat_id, context):
+# 저장 로직 (따옴표 방 이름 지원 & 텍스트/이미지 통합 ⭐)
+async def save_logic(m_id, chat_id, context, message):
     global db_commands
-    await asyncio.sleep(2.5)
-    if m_id in media_group_cache:
-        target, raw_cap = media_group_cache[m_id], media_group_cache[m_id]["caption"]
-        try:
-            room_target = None
-            # #"방 이름" 따옴표 정밀 인식
-            room_match = re.search(r'#"(.*?)"', raw_cap)
-            if room_match:
-                room_target = col_members.find_one({"room_name": room_match.group(1)})
-            else: # 따옴표 없을 시 기존 매칭 시도
-                all_rooms = sorted(list(col_members.find({}, {"room_name": 1, "chat_id": 1})), key=lambda x: len(x.get('room_name','')), reverse=True)
-                for r in all_rooms:
-                    rname = r.get('room_name')
-                    if rname and f"#{rname}" in raw_cap:
-                        room_target = r
-                        break
+    if m_id: await asyncio.sleep(2.5) # 미디어 대기
+    
+    raw_cap = message.caption if message.caption else message.text
+    if not raw_cap: return
 
-            if "/이벤트설정" in raw_cap: key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
-            else:
-                match = re.search(r"/personal\s+(?:#\".*?\"\s+|#\S+\s+)?(\S+)\s*(.*)", raw_cap, re.IGNORECASE | re.DOTALL)
-                if match: key, content = match.group(1), match.group(2)
-                else: return
+    try:
+        # #"방 이름" 따옴표 정밀 인식 로직
+        room_target = None
+        room_match = re.search(r'#"(.*?)"', raw_cap)
+        if room_match:
+            room_target = col_members.find_one({"room_name": room_match.group(1)})
+        else: # 따옴표 없을 시 기존 매칭
+            room_match_old = re.search(r'#(\S+)', raw_cap)
+            if room_match_old: room_target = col_members.find_one({"room_name": room_match_old.group(1)})
 
-            if room_target:
-                content = content.replace(f'#"{room_target["room_name"]}"', "").replace(f'#{room_target["room_name"]}', "").strip()
-            
-            msg, btn = content.rsplit("---", 1) if "---" in content else (content, "")
-            cmd_data = {"photos": target["ids"], "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
-            
-            if room_target:
-                col_members.update_one({"chat_id": room_target["chat_id"]}, {"$set": {f"local_commands.{key}": cmd_data}})
-                await context.bot.send_message(chat_id, f"✅ [{room_target['room_name']}] 전용 [{key}] 저장")
-            else:
-                db_commands[key] = cmd_data
-                save_bot_data(db_commands)
-                await context.bot.send_message(chat_id, f"✅ [공용] [{key}] 저장")
-        except: pass
-        del media_group_cache[m_id]
+        if "/이벤트설정" in raw_cap: key, content = "_event_celebration_", raw_cap.split("/이벤트설정", 1)[1].strip()
+        else:
+            match = re.search(r"/personal\s+(?:#\".*?\"\s+|#\S+\s+)?(\S+)\s*(.*)", raw_cap, re.IGNORECASE | re.DOTALL)
+            if match: key, content = match.group(1), match.group(2)
+            else: return
+
+        if room_target: content = content.replace(f'#"{room_target["room_name"]}"', "").replace(f'#{room_target["room_name"]}', "").strip()
+        msg, btn = content.rsplit("---", 1) if "---" in content else (content, "")
+        
+        photos = media_group_cache[m_id]["ids"] if m_id and m_id in media_group_cache else ([message.photo[-1].file_id] if message.photo else [])
+        cmd_data = {"photos": photos, "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
+        
+        if room_target:
+            col_members.update_one({"chat_id": room_target["chat_id"]}, {"$set": {f"local_commands.{key}": cmd_data}})
+            await context.bot.send_message(chat_id, f"✅ [{room_target['room_name']}] 전용 [{key}] 저장 완료")
+        else:
+            db_commands[key] = cmd_data
+            save_bot_data(db_commands)
+            await context.bot.send_message(chat_id, f"✅ [공용] [{key}] 저장 완료")
+    except: pass
+    if m_id in media_group_cache: del media_group_cache[m_id]
 
 async def send_custom_output(context, chat_id, data, title=""):
     try:
-        photos, caption = data["photos"], f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
+        photos, caption = data.get("photos", []), f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
         markup = None
         if data.get("buttons"):
             keyboard = [[InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b] for line in data["buttons"].split('\n')]
             markup = InlineKeyboardMarkup(keyboard) if any(keyboard) else None
-        if len(photos) == 1: await context.bot.send_photo(chat_id, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
+        
+        if not photos: await context.bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=markup)
+        elif len(photos) == 1: await context.bot.send_photo(chat_id, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
         else:
             await context.bot.send_media_group(chat_id, [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]])
             if markup: await context.bot.send_message(chat_id, "⚡️ 버튼 확인", reply_markup=markup)
