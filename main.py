@@ -151,7 +151,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(0.5)
                 return
 
-        # [필터링] 하우돈 극강화 (문법 수정 완료 ⭐)
         bad_words = ["일베", "벌레", "노무", "무현", "노무현", "노무쿤", "무현쿤", "노지금무라현노", "지금무라현노", "무라현노", "운지", "운q지", "무q현", "니q노", "니노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "슨상님", "홍어", "통구이", "중력"]
         if any(w in text_lower for w in bad_words) or any(w in clean_text for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
@@ -164,7 +163,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None)], 10.0))
             return 
 
-        # [리액션] (무삭제 보존 ⭐)
         s_count = text.count('ㅅ')
         if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
             rep = await update.message.reply_text("대여왕 강림!!! 👑 ㅅㅅㅅㅅ", parse_mode="HTML")
@@ -193,7 +191,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rep = await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{r:,}</b>", parse_mode="HTML"); asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 10.0))
         return
 
-    # 관리자 기능 (영구 세션 & 다중 사진 저장)
     if uid == ADMIN_ID and is_private:
         if text_lower in ["/설정", "/리스트확인", "/삭제", "/스케줄"]:
             all_rooms = list(col_members.find()); btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
@@ -250,25 +247,39 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
     except Exception as e: await context.bot.send_message(chat_id, f"⚠️ 오류: {str(e)}")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
+# ⭐ 이 부분 하나만 고쳤습니다 (엔터 무시 파서) ⭐
 async def save_schedule_logic(chat_id, context, m_id, raw_html):
     target_chat_id = get_admin_session(ADMIN_ID)
     if not target_chat_id or target_chat_id == "common": return await context.bot.send_message(chat_id, "⚠️ 스케줄은 방을 먼저 선택하세요.")
     try:
-        parts = raw_html.split("/스케줄등록", 1)[1].strip().split(" ", 1)
-        h_parts = parts[0].split("|")
-        if len(h_parts) != 5: raise ValueError("포맷 불일치")
-        name, start_s, end_s, slot_s, interval_s = h_parts
-        start_dt = datetime.strptime(start_s.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=KST)
-        end_dt = datetime.strptime(end_s.strip(), "%Y-%m-%d %H:%M").replace(tzinfo=KST)
-        slot_start, slot_end = slot_s.strip().split("-")
-        msg, btn = parts[1].rsplit("---", 1) if "---" in parts[1] else (parts[1], "")
+        core_text = raw_html.split("/스케줄등록", 1)[1].strip()
+        h_parts = [p.strip() for p in core_text.split("|", 4)]
+        if len(h_parts) < 5: raise ValueError("파이프(|) 구분자 부족")
+        
+        name, start_s, end_s, slot_s, remainder = h_parts
+        rem_parts = remainder.split(None, 1) 
+        if len(rem_parts) < 2: raise ValueError("간격 숫자 뒤 내용 누락")
+        interval_s, content_raw = rem_parts[0], rem_parts[1]
+        
+        start_dt = datetime.strptime(start_s, "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+        end_dt = datetime.strptime(end_s, "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+        slot_parts = slot_s.replace("-", " ").split()
+        slot_start, slot_end = slot_parts[0][:4], slot_parts[1][:4]
+        
+        msg, btn = content_raw.rsplit("---", 1) if "---" in content_raw else (content_raw, "")
         photos = media_group_cache[m_id]["ids"] if m_id and m_id in media_group_cache else []
-        sched_data = {"chat_id": target_chat_id, "name": name, "start_dt": start_dt, "end_dt": end_dt, "slot_start": slot_start, "slot_end": slot_end, "interval": int(interval_s), "data": {"photos": photos, "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}}
+        
+        sched_data = {
+            "chat_id": target_chat_id, "name": name, "start_dt": start_dt, "end_dt": end_dt,
+            "slot_start": slot_start, "slot_end": slot_end, "interval": int(interval_s),
+            "data": {"photos": photos, "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
+        }
         res = col_sched.insert_one(sched_data)
         context.job_queue.run_repeating(run_scheduled_task, interval=int(interval_s)*60, first=1, data={'id': res.inserted_id}, name=str(res.inserted_id))
         await context.bot.send_message(chat_id, f"⏰ [{name}] 예약 완료! (사진 {len(photos)}장)")
-    except Exception:
-        guide = "⚠️ **스케줄 형식이 틀렸습니다!**\n\n`/스케줄등록 이름|시작일시|종료일시|시간대|간격 내용`"
+    except Exception as e:
+        err_msg = str(e)
+        guide = f"⚠️ **입력 형식 오류!**\n\n**원인:** {err_msg}\n\n`/스케줄등록 이름|시작일시|종료일시|시간대|간격` 뒤에 **한 칸 띄고** 내용을 적어주세요."
         await context.bot.send_message(chat_id, guide, parse_mode="Markdown")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
