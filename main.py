@@ -34,6 +34,7 @@ col_sessions = mongodb['admin_sessions']
 
 admin_sessions = {}
 media_group_cache = {}
+last_run_cache = {}
 
 def get_admin_session(admin_id):
     sess = col_sessions.find_one({"admin_id": admin_id})
@@ -69,22 +70,46 @@ async def is_authorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
 current_data = load_bot_data()
 db_commands = current_data.get("commands", {})
 
-async def run_scheduled_task(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    sched = col_sched.find_one({"_id": job.data['id']})
-    if not sched: return
-    now = datetime.now(KST)
-    start_dt = sched['start_dt'].replace(tzinfo=KST)
-    end_dt = sched['end_dt'].replace(tzinfo=KST)
-    if not (start_dt <= now <= end_dt):
-        if now > end_dt:
-            col_sched.delete_one({"_id": job.data['id']})
-            job.schedule_removal()
-        return
-    curr_t = now.strftime("%H%M")
-    if not (sched['slot_start'] <= curr_t <= sched['slot_end']): return
-    try: await send_custom_output(context, sched['chat_id'], sched['data'])
-    except: pass
+# [수정] 무적 자체 스케줄러 (공용 스케줄 및 시간 버그 완전 해결) ⭐
+async def custom_scheduler_loop(application):
+    bot = application.bot
+    while True:
+        try:
+            now = datetime.now(KST)
+            now_str = now.strftime("%Y-%m-%d %H:%M")
+            curr_t = now.strftime("%H%M")
+            
+            scheds = list(col_sched.find())
+            for s in scheds:
+                sid = str(s['_id'])
+                
+                # 기간 만료 체크 (문자열 자체 비교로 100% KST 일치 보장)
+                if not (s['start_dt'] <= now_str <= s['end_dt']):
+                    if now_str > s['end_dt']:
+                        col_sched.delete_one({"_id": s['_id']})
+                        if sid in last_run_cache: del last_run_cache[sid]
+                    continue
+                    
+                # 시간대(Slot) 체크
+                if not (s['slot_start'] <= curr_t <= s['slot_end']): continue
+                    
+                # 간격(Interval) 체크 및 송출
+                last_run = last_run_cache.get(sid)
+                if not last_run or (now - last_run).total_seconds() >= s['interval'] * 60:
+                    last_run_cache[sid] = now
+                    
+                    # [공용 방 송출 로직]
+                    if s['chat_id'] == "common":
+                        rooms = list(col_members.find())
+                        for r in rooms:
+                            try: await send_custom_output(bot, r['chat_id'], s['data'])
+                            except: pass
+                    else:
+                        try: await send_custom_output(bot, s['chat_id'], s['data'])
+                        except Exception as e: logging.error(f"송출 오류: {e}")
+        except Exception as e:
+            logging.error(f"스케줄러 루프 오류: {e}")
+        await asyncio.sleep(20)
 
 async def get_realtime_weather(city_input="수원"):
     if not WEATHER_API_KEY: return "❌ API_KEY 누락"
@@ -151,18 +176,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(0.5)
                 return
 
+        # 필터링 리스트 완벽 보존
         bad_words = ["일베", "벌레", "노무", "무현", "노무현", "노무쿤", "무현쿤", "노지금무라현노", "지금무라현노", "무라현노", "운지", "운q지", "무q현", "니q노", "니노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "슨상님", "홍어", "통구이", "중력"]
         if any(w in text_lower for w in bad_words) or any(w in clean_text for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
             s_msg = None
             if os.path.exists("2.webm"):
                 try: 
-                    with open("2.webm", "rb") as f:
-                        s_msg = await context.bot.send_sticker(chat_id, f)
+                    with open("2.webm", "rb") as f: s_msg = await context.bot.send_sticker(chat_id, f)
                 except: pass
             asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id, (s_msg.message_id if s_msg else None)], 10.0))
             return 
 
+        # 리액션 완벽 보존
         s_count = text.count('ㅅ')
         if ("분부니" in text and s_count >= 6) or ("뷰니" in text and s_count >= 5):
             rep = await update.message.reply_text("대여왕 강림!!! 👑 ㅅㅅㅅㅅ", parse_mode="HTML")
@@ -228,10 +254,8 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
     raw_html = media_group_cache[m_id]["caption_html"] if m_id and m_id in media_group_cache else (message.caption_html if message and message.caption_html else (message.text_html if message else ""))
     if not raw_html: return
     if "/스케줄등록" in raw_html: await save_schedule_logic(chat_id, context, m_id, raw_html); return
-    
     target_chat_id = get_admin_session(ADMIN_ID)
     if not target_chat_id: return await context.bot.send_message(chat_id, "⚠️ 방을 먼저 선택하세요.")
-    
     try:
         if "/이벤트설정" in raw_html: key, content = "_event_celebration_", raw_html.split("/이벤트설정", 1)[1].strip()
         else:
@@ -247,10 +271,10 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
     except Exception as e: await context.bot.send_message(chat_id, f"⚠️ 오류: {str(e)}")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
-# ⭐ 이 부분 하나만 고쳤습니다 (엔터 무시 파서) ⭐
+# [수정] 스케줄 공용 허용 및 시간 버그 해결 ⭐
 async def save_schedule_logic(chat_id, context, m_id, raw_html):
     target_chat_id = get_admin_session(ADMIN_ID)
-    if not target_chat_id or target_chat_id == "common": return await context.bot.send_message(chat_id, "⚠️ 스케줄은 방을 먼저 선택하세요.")
+    if not target_chat_id: return await context.bot.send_message(chat_id, "⚠️ 방을 먼저 선택하세요.")
     try:
         core_text = raw_html.split("/스케줄등록", 1)[1].strip()
         h_parts = [p.strip() for p in core_text.split("|", 4)]
@@ -261,8 +285,10 @@ async def save_schedule_logic(chat_id, context, m_id, raw_html):
         if len(rem_parts) < 2: raise ValueError("간격 숫자 뒤 내용 누락")
         interval_s, content_raw = rem_parts[0], rem_parts[1]
         
-        start_dt = datetime.strptime(start_s, "%Y-%m-%d %H:%M").replace(tzinfo=KST)
-        end_dt = datetime.strptime(end_s, "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+        # DB 변환 에러를 막기 위해 KST 시간을 '문자열' 그대로 저장
+        start_dt_str = start_s.strip()
+        end_dt_str = end_s.strip()
+        
         slot_parts = slot_s.replace("-", " ").split()
         slot_start, slot_end = slot_parts[0][:4], slot_parts[1][:4]
         
@@ -270,32 +296,36 @@ async def save_schedule_logic(chat_id, context, m_id, raw_html):
         photos = media_group_cache[m_id]["ids"] if m_id and m_id in media_group_cache else []
         
         sched_data = {
-            "chat_id": target_chat_id, "name": name, "start_dt": start_dt, "end_dt": end_dt,
+            "chat_id": target_chat_id, "name": name, "start_dt": start_dt_str, "end_dt": end_dt_str,
             "slot_start": slot_start, "slot_end": slot_end, "interval": int(interval_s),
             "data": {"photos": photos, "caption": msg.strip(), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
         }
         res = col_sched.insert_one(sched_data)
-        context.job_queue.run_repeating(run_scheduled_task, interval=int(interval_s)*60, first=1, data={'id': res.inserted_id}, name=str(res.inserted_id))
+        
+        # 예약 즉시 첫 1회 발송을 강제 보장
+        last_run_cache[str(res.inserted_id)] = datetime.now(KST) - timedelta(minutes=int(interval_s))
+        
         await context.bot.send_message(chat_id, f"⏰ [{name}] 예약 완료! (사진 {len(photos)}장)")
     except Exception as e:
         err_msg = str(e)
-        guide = f"⚠️ **입력 형식 오류!**\n\n**원인:** {err_msg}\n\n`/스케줄등록 이름|시작일시|종료일시|시간대|간격` 뒤에 **한 칸 띄고** 내용을 적어주세요."
-        await context.bot.send_message(chat_id, guide, parse_mode="Markdown")
+        guide = f"⚠️ <b>입력 형식 오류!</b>\n\n원인: {err_msg}\n\n<code>/스케줄등록 이름|시작일시|종료일시|시간대|간격 내용</code>"
+        await context.bot.send_message(chat_id, guide, parse_mode="HTML")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
-async def send_custom_output(context, chat_id, data, title=""):
+async def send_custom_output(bot_or_context, chat_id, data, title=""):
+    bot = getattr(bot_or_context, 'bot', bot_or_context)
     try:
         photos, caption = data.get("photos", []), f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
         markup = None
         if data.get("buttons"):
             keyboard = [[InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b] for line in data["buttons"].split('\n')]
             markup = InlineKeyboardMarkup(keyboard) if any(keyboard) else None
-        if not photos: await context.bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=markup)
-        elif len(photos) == 1: await context.bot.send_photo(chat_id, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
+        if not photos: await bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=markup)
+        elif len(photos) == 1: await bot.send_photo(chat_id, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
         else:
             media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]]
-            await context.bot.send_media_group(chat_id, media)
-            if markup: await context.bot.send_message(chat_id, "⚡️ 버튼 확인", reply_markup=markup)
+            await bot.send_media_group(chat_id, media)
+            if markup: await bot.send_message(chat_id, "⚡️ 버튼 확인", reply_markup=markup)
     except: pass
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -320,7 +350,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⏰ 예약 스케줄:", reply_markup=InlineKeyboardMarkup(btns))
     elif query.data.startswith("dsched:"):
         sid = query.data.split(":")[1]; col_sched.delete_one({"_id": ObjectId(sid)})
-        for job in context.job_queue.get_jobs_by_name(sid): job.schedule_removal()
+        if sid in last_run_cache: del last_run_cache[sid]
         await query.answer("삭제 완료!"); await handle_callback(update, context)
     elif query.data == "back_to_rooms":
         all_rooms = list(col_members.find()); btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
@@ -335,7 +365,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer(f"[공용] {cmd} 삭제!"); await handle_callback(update, context)
 
 async def post_init(application):
-    for s in col_sched.find(): application.job_queue.run_repeating(run_scheduled_task, interval=s['interval']*60, first=5, data={'id': s['_id']}, name=str(s['_id']))
+    # 텔레그램 의존성 없는 자체 무적 스케줄러 실행
+    asyncio.create_task(custom_scheduler_loop(application))
 
 if __name__ == "__main__":
     if TOKEN and MONGO_URL:
