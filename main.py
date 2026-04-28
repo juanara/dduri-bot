@@ -159,7 +159,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(0.5)
                 return
 
-        bad_words = ["일베", "벌레", "노무", "무현", "노무현", "노무쿤", "무현쿤", "노지금무라현노", "지금무라현노", "무라현노", "운지", "운q지", "무q현", "니q노", "부엉", "부엉이바위", "봉하", "이기야", "데스웅", "노알라", "슨상님", "홍어", "통구이", "중력", "전라디언", "폭동", "땅크", "엔젤두환", "재앙", "재기", "섹스", "스섹", "빨통", "응디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무"]
+        bad_words = ["일베", "벌레", "노무", "무현", "노무현", "노무쿤", "무현쿤", "노지금무라현노", "지금무라현노", "무라현노", "운지", "운q지", "무q현", "니q노", "니노", "부엉", "부엉이바위", "봉하", "이기야", "데스웅", "노알라", "슨상님", "홍어", "통구이", "중력", "전라디언", "폭동", "땅크", "엔젤두환", "재앙", "재기", "섹스", "스섹", "빨통", "응디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무"]
         if any(w in text_lower for w in bad_words) or any(w in clean_text for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
             s_msg = None
