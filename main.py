@@ -6,8 +6,8 @@ from flask import Flask
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
-# 1. 로그 및 서버 설정 (무삭제 ⭐)
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# 1. 로그 및 서버 설정 (무삭제 보존)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
 
@@ -19,7 +19,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host='0.0.0.0', port=port)
 
-# 2. 환경 변수 및 DB 설정 (무삭제 ⭐)
+# 2. 환경 변수 및 DB 연결
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "8472713103"))
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
@@ -46,10 +46,11 @@ def load_bot_data():
 def save_bot_data(commands):
     col_main.update_one({"id": "bot_main_data"}, {"$set": {"commands": commands}}, upsert=True)
 
-# [엔진] 무적 자체 스케줄러 (공용/KST 버그 해결 ⭐)
+# [자체 엔진] 외부 패키지 의존성 없는 무적 스케줄러 (무삭제 보존)
 async def custom_scheduler_loop(application):
     await asyncio.sleep(5)
     bot = application.bot
+    logger.info("🚀 뜌리봇 무적 스케줄 엔진 가동!")
     while True:
         try:
             now = datetime.now(KST)
@@ -69,7 +70,17 @@ async def custom_scheduler_loop(application):
         except Exception: pass
         await asyncio.sleep(25)
 
-# [기능] 날씨/메뉴 (무삭제 ⭐)
+# [권한 체크]
+async def is_authorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid == ADMIN_ID: return True
+    if update.effective_chat.type == "private": return False
+    try:
+        member = await context.bot.get_chat_member(update.effective_chat.id, uid)
+        return member.status in ["administrator", "creator"]
+    except: return False
+
+# [날씨/메뉴/삭제 로직]
 async def get_realtime_weather(city_input="수원"):
     if not WEATHER_API_KEY: return "❌ API_KEY 누락"
     city_map = {"수원": "Suwon", "서울": "Seoul", "인천": "Incheon", "부산": "Busan", "제주": "Jeju"}
@@ -91,7 +102,7 @@ async def delete_messages_later(context, chat_id, message_ids, delay):
         try: await context.bot.delete_message(chat_id, msg_id)
         except: pass
 
-# [핸들러] 필터/리액션/멘션/통계 (무삭제 ⭐)
+# [메인 핸들러] 모든 기능 100% 무삭제 통합
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global media_group_cache
     if not update.message: return
@@ -101,7 +112,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_title, name = update.effective_chat.title or "개인", html.escape(update.message.from_user.first_name)
     is_private = update.effective_chat.type == "private"
 
-    # 멤버 통계 & 5000타점 트리거
+    # 통계 & 5000타점 트리거
     if not is_private and not update.message.from_user.is_bot:
         res = col_members.find_one_and_update({"chat_id": str(chat_id)}, {"$set": {"room_name": chat_title, f"users.{uid}": name}, "$inc": {"msg_count": 1}}, upsert=True, return_document=True)
         if res and res.get("msg_count", 0) % 5000 == 0:
@@ -109,7 +120,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if evt: await send_custom_output(context.bot, chat_id, evt, f"🎊 {chat_title} {res['msg_count']}번째 당첨! 🎊")
 
     if not update.message.from_user.is_bot:
-        # 하우돈 필터 (38개 완벽 보존)
+        # 하우돈 필터 38개
         bad_words = ["일베", "벌레", "노무", "무현", "노무현", "노무쿤", "무현쿤", "노지금무라현노", "지금무라현노", "무라현노", "운지", "운q지", "무q현", "니q노", "니노", "부엉", "부엉이바위", "봉하마을", "봉하", "섹스", "스섹", "쎅", "빨통", "섹q스", "스q섹", "응디", "응q디", "응디시티", "엠씨무현", "mc무현", "엠씨현무", "mc현무", "엠q씨현q무", "노알라", "슨상님", "홍어", "통구이", "중력"]
         if any(w in text_lower for w in bad_words) or any(w in clean_text for w in bad_words):
             rep = await update.message.reply_text(f"<tg-spoiler>하우돈 검거 👮‍♂️</tg-spoiler>", parse_mode="HTML")
@@ -142,7 +153,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rep = await update.message.reply_text(f"<b>{name}</b>님의 결과: {icon} <b>{r:,}</b>", parse_mode="HTML")
         asyncio.create_task(delete_messages_later(context, chat_id, [update.message.message_id, rep.message_id], 15.0))
         return
-    if text_lower.startswith(("/all", "/전체공지", "/전체멘션")):
+    if text_lower.startswith(("/all", "/전체공지", "/전체멘션")) and (await is_authorized(update, context)):
         room = col_members.find_one({"chat_id": str(chat_id)}); members = room.get("users", {}) if room else {}
         m_list = list(members.items())
         for i in range(0, len(m_list), 10):
@@ -150,7 +161,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id, " ".join(mentions), parse_mode="HTML"); await asyncio.sleep(0.5)
         return
 
-    # 관리자 기능 (저장 및 UI)
+    # 관리자 기능
     if uid == ADMIN_ID and is_private:
         if text.startswith(('/설정', '/리스트', '/삭제', '/스케줄')):
             btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
@@ -176,7 +187,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         room = col_members.find_one({"chat_id": str(chat_id)}); target = (room.get("local_commands", {}).get(cmd) if room else None) or load_bot_data().get("commands", {}).get(cmd)
         if target: await send_custom_output(context.bot, chat_id, target)
 
-# [저장] 인용/HTML 완벽 보존 로직 ⭐
+# [저장 로직] 인용/HTML 보존
 async def save_logic_with_delay(chat_id, context, m_id, message=None):
     if m_id: await asyncio.sleep(3.5)
     raw_html = media_group_cache[m_id]["caption"] if m_id else (message.caption_html or message.text_html or "")
@@ -217,6 +228,7 @@ async def send_custom_output(bot, chat_id, data, title=""):
             if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
     except: pass
 
+# [삭제 UI]
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; data = query.data
     if query.from_user.id != ADMIN_ID: return
@@ -242,10 +254,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]] + [[InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}") ] for r in list(col_members.find()) if "room_name" in r]
         await query.edit_message_text("📂 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
 
+# [핵심] 봇 켜지자마자 엔진 가동
+async def post_init(application):
+    asyncio.create_task(custom_scheduler_loop(application))
+
 if __name__ == "__main__":
     if TOKEN and MONGO_URL:
         threading.Thread(target=run_flask, daemon=True).start()
-        app = ApplicationBuilder().token(TOKEN).build()
+        app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
         app.add_handler(MessageHandler(filters.ALL, handle_message)); app.add_handler(CallbackQueryHandler(handle_callback))
-        app.job_queue.run_once(lambda ctx: asyncio.create_task(custom_scheduler_loop(app)), 1)
         app.run_polling()
