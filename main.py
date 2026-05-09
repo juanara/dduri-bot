@@ -17,7 +17,7 @@ API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 STRING_SESSION = os.getenv("STRING_SESSION")
 MONGO_URL = os.getenv("MONGO_URL")
-ADMIN_ID_STR = os.getenv("ADMIN_ID", "8472713103")
+ADMIN_ID_STR = os.getenv("ADMIN_ID", "8472713103,8092185425")
 ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 
 client = MongoClient(MONGO_URL)
