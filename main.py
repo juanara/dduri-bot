@@ -157,13 +157,27 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
     if not t_id or not raw_html: return
     try:
         if "/스케줄등록" in raw_html:
+            # 1. 원본 HTML에서 태그를 무시하고 텍스트만 분리
             h = [p.strip() for p in raw_html.split("/스케줄등록", 1)[1].strip().split("|", 4)]
-            intv, content = h[4].split(None, 1)
-            data = {"chat_id": t_id, "name": h[0], "start_dt": h[1], "end_dt": h[2], "slot_start": h[3].replace("-","").strip()[:4], "slot_end": h[3].replace("-","").strip()[-4:], "interval": int(intv), "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content.strip())}}
-            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ [{h[0]}] 예약 완료")
+            intv_raw, content = h[4].split(None, 1)
+            
+            # [핵심수정] 메타데이터(날짜, 시간, 간격)에서 HTML 태그 제거 로직 추가
+            def clean(t): return re.sub(r'<[^>]+>', '', t).strip()
+            
+            data = {
+                "chat_id": t_id, 
+                "name": clean(h[0]), 
+                "start_dt": clean(h[1]), 
+                "end_dt": clean(h[2]), 
+                "slot_start": clean(h[3]).replace("-","")[:4], 
+                "slot_end": clean(h[3]).replace("-","")[-4:], 
+                "interval": int(clean(intv_raw)), # 이제 </code>가 있어도 숫자만 쏙 골라냅니다
+                "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content.strip())}
+            }
+            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ [{clean(h[0])}] 예약 완료")
         elif "/personal" in raw_html:
             m = re.search(r"/personal\s+(\S+)\s*(.*)", raw_html, re.IGNORECASE | re.DOTALL)
-            key, content = m.group(1), m.group(2)
+            key, content = re.sub(r'<[^>]+>', '', m.group(1)).strip(), m.group(2)
             msg, btn = content.rsplit("---", 1) if "---" in content else (content, "")
             cmd_data = {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(msg.strip()), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
             if t_id == "common": col_main.update_one({"id": "bot_main_data"}, {"$set": {f"commands.{key}": cmd_data}}, upsert=True)
