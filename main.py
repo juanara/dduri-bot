@@ -62,27 +62,41 @@ async def send_custom_output(bot, chat_id, data, title=""):
             if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
     except: pass
 
+# [수정] 날짜 비교 로직이 완벽해진 스케줄러 루프
 async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
     bot = application.bot
     while True:
         try:
             now = datetime.now(KST)
-            now_str, curr_t = now.strftime("%Y-%m-%d %H:%M"), now.strftime("%H%M")
+            # 날짜(YYYYMMDD)와 시간(HHMM)을 분리해서 정확히 비교
+            now_date = now.strftime("%Y%m%d")
+            now_time = now.strftime("%H%M")
+            
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
-                if not (s['start_dt'] <= now_str <= s['end_dt']):
-                    if now_str > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
+                
+                # 1. 날짜 범위 체크 (사용자가 넣은 YYYYMMDD 형식과 일치시킴)
+                if not (s['start_dt'] <= now_date <= s['end_dt']):
+                    if now_date > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
                     continue
-                if not (s['slot_start'] <= curr_t <= s['slot_end']): continue
+                
+                # 2. 시간 범위 체크 (HHMM 형식 비교)
+                if not (s['slot_start'] <= now_time <= s['slot_end']): 
+                    continue
+                
+                # 3. 간격(Interval) 체크 및 발송
                 last_run = last_run_cache.get(sid)
                 if not last_run or (now - last_run).total_seconds() >= s['interval'] * 60:
                     last_run_cache[sid] = now
                     if s['chat_id'] == "common":
-                        for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
-                    else: await send_custom_output(bot, s['chat_id'], s['data'])
-        except: pass
-        await asyncio.sleep(20)
+                        for r in list(col_members.find()): 
+                            await send_custom_output(bot, r['chat_id'], s['data'])
+                    else: 
+                        await send_custom_output(bot, s['chat_id'], s['data'])
+        except Exception as e:
+            logging.error(f"Scheduler Error: {e}")
+        await asyncio.sleep(20) # 20초마다 정밀 감시
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
