@@ -7,20 +7,16 @@ from pymongo import MongoClient
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import User
-from bson.objectid import ObjectId
 
-# 1. 시스템 설정
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+# 1. 설정 및 DB 연결
+logging.basicConfig(level=logging.INFO)
 KST = timezone(timedelta(hours=9))
 
-# 2. 환경 변수 및 DB 연결
 TOKEN = os.getenv("TOKEN")
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 STRING_SESSION = os.getenv("STRING_SESSION")
 MONGO_URL = os.getenv("MONGO_URL")
-
-# 멀티 관리자 리스트 변환 (ValueError 방지)
 ADMIN_ID_STR = os.getenv("ADMIN_ID", "8472713103")
 ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 
@@ -28,12 +24,10 @@ client = MongoClient(MONGO_URL)
 mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
 
-# 텔레톤 유저봇 및 캐시 설정
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
-media_group_cache = {}
-last_run_cache = {}
+media_group_cache, last_run_cache = {}, {}
 
-# [유틸리티] HTML 태그 밸런서 (이모지 및 핑크박스 보존)
+# [유틸리티] HTML 태그 밸런서
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -44,7 +38,6 @@ def balance_html(text):
         if closed > opened: text = f'<{tag}>' * (closed - opened) + text
     return text
 
-# [엔진] 권한 체크
 async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid in ADMIN_LIST: return True
@@ -54,18 +47,14 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return member.status in ["administrator", "creator"]
     except: return False
 
-# [엔진] 통합 출력 시스템 (하트 보존 핵심)
+# [출력] 하트 및 사진 묶음 전송
 async def send_custom_output(bot, chat_id, data, title=""):
     try:
         photos, caption, cid = data.get("photos", []), (f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']), str(chat_id)
         markup = None
         if data.get("buttons"):
-            btn_lines = []
-            for line in data["buttons"].split('\n'):
-                row = [InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b]
-                if row: btn_lines.append(row)
-            if btn_lines: markup = InlineKeyboardMarkup(btn_lines)
-            
+            btns = [[InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b] for line in data["buttons"].split('\n')]
+            if btns[0]: markup = InlineKeyboardMarkup(btns)
         if not photos: await bot.send_message(cid, caption, parse_mode="HTML", reply_markup=markup)
         elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
         else:
@@ -97,69 +86,64 @@ async def custom_scheduler_loop(application):
         except: pass
         await asyncio.sleep(20)
 
-# [핸들러] 통합 메시지 처리
+# [핸들러] 메인 로직
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     uid, chat_id = update.effective_user.id, update.effective_chat.id
     text = update.message.text or ""
     
-    # 1. 그룹방 실시간 동기화 시스템
     if await check_auth(update, context):
         if text == "/동기화":
-            msg = await update.message.reply_text("🔄 DB 최신화 중...")
-            new_users = {}
-            async for u in userbot.iter_participants(chat_id):
-                if isinstance(u, User) and not u.bot and not u.deleted:
-                    new_users[str(u.id)] = html.escape(u.first_name)
-            col_members.update_one({"chat_id": str(chat_id)}, {"$set": {"room_name": update.effective_chat.title, "users": new_users}}, upsert=True)
-            await msg.edit_text(f"✅ 동기화 완료! 현재 인원: {len(new_users)}명")
+            msg = await update.message.reply_text("🔄 동기화 중...")
+            users = {str(u.id): html.escape(u.first_name) async for u in userbot.iter_participants(chat_id) if isinstance(u, User) and not u.bot and not u.deleted}
+            col_members.update_one({"chat_id": str(chat_id)}, {"$set": {"room_name": update.effective_chat.title, "users": users}}, upsert=True)
+            await msg.edit_text(f"✅ 완료! 인원: {len(users)}명")
             return
-
-        # 2. 안전한 전체 공지 (/ALL)
         if text.startswith(("/all", "/전체공지")):
             room = col_members.find_one({"chat_id": str(chat_id)})
             m_list = list(room.get("users", {}).items()) if room else []
             if not m_list: return await update.message.reply_text("❌ 동기화 먼저!")
-            
-            await update.message.reply_text(f"📣 {len(m_list)}명 호출 시작...")
+            await update.message.reply_text(f"📣 {len(m_list)}명 호출...")
             for i in range(0, len(m_list), 10):
                 mentions = [f"<a href='tg://user?id={mid}'>{mname}</a>" for mid, mname in m_list[i:i+10]]
                 await context.bot.send_message(chat_id, " ".join(mentions), parse_mode="HTML")
-                await asyncio.sleep(0.8) # 스팸 방지
+                await asyncio.sleep(0.8)
             return
 
-    # 3. 관리자 전용 설정 (개인 DM)
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
         if text.startswith(('/설정', '/리스트', '/삭제', '/스케줄')):
-            btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
+            btns = [[InlineKeyboardButton("📁 공용", callback_data="set_room:common")]]
             for r in list(col_members.find()):
                 if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
-            return await update.message.reply_text("📂 관리 대상 선택:", reply_markup=InlineKeyboardMarkup(btns))
+            return await update.message.reply_text("📂 대상 선택:", reply_markup=InlineKeyboardMarkup(btns))
         
-        # 순정 데이터 캡처
         raw_html = update.message.caption_html or update.message.text_html or ""
         if update.message.photo or any(x in raw_html.lower() for x in ["/personal", "/스케줄등록"]):
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
             if update.message.photo:
-                if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": raw_html}
+                if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": "", "task": None}
                 media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
-                await asyncio.sleep(3.5)
-                if m_id in media_group_cache: await save_logic(chat_id, context, m_id, uid)
+                if raw_html: media_group_cache[m_id]["caption"] = raw_html
+                if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
+                media_group_cache[m_id]["task"] = asyncio.create_task(save_logic(chat_id, context, m_id, uid))
             else: await save_logic(chat_id, context, None, uid, update.message)
             return
 
-    # 4. 명령어 실행
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         room = col_members.find_one({"chat_id": str(chat_id)})
         target = (room.get("local_commands", {}).get(cmd) if room else None) or col_main.find_one({"id": "bot_main_data"}).get("commands", {}).get(cmd)
         if target: await send_custom_output(context.bot, chat_id, target)
 
+# [저장] 디바운싱 기반 저장 로직
 async def save_logic(chat_id, context, m_id, uid, message=None):
+    if m_id:
+        try: await asyncio.sleep(4.0)
+        except asyncio.CancelledError: return
+    if m_id and m_id not in media_group_cache: return
     raw_html = media_group_cache[m_id]["caption"] if m_id else (message.caption_html or message.text_html or "")
     sess = col_sessions.find_one({"admin_id": uid}); t_id = sess.get('target_chat_id') if sess else None
-    if not t_id: return await context.bot.send_message(chat_id, "⚠️ 방 선택 누락")
-    
+    if not t_id or not raw_html: return
     try:
         if "/스케줄등록" in raw_html:
             h = [p.strip() for p in raw_html.split("/스케줄등록", 1)[1].strip().split("|", 4)]
@@ -173,30 +157,30 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
             cmd_data = {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(msg.strip()), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
             if t_id == "common": col_main.update_one({"id": "bot_main_data"}, {"$set": {f"commands.{key}": cmd_data}}, upsert=True)
             else: col_members.update_one({"chat_id": t_id}, {"$set": {f"local_commands.{key}": cmd_data}}, upsert=True)
-            await context.bot.send_message(chat_id, f"✅ [{key}] 저장")
+            await context.bot.send_message(chat_id, f"✅ [{key}] 저장 (사진 {len(cmd_data['photos'])}장)")
     except Exception as e: await context.bot.send_message(chat_id, f"❌ 오류: {e}")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; data = query.data; uid = query.from_user.id
+    query, uid = update.callback_query, update.callback_query.from_user.id
     if uid not in ADMIN_LIST: return
+    data = query.data
     if data.startswith("set_room:"):
         r_id = data.split(":")[1]; col_sessions.update_one({"admin_id": uid}, {"$set": {"target_chat_id": r_id}}, upsert=True)
-        btns = [[InlineKeyboardButton("📋 리스트", callback_data=f"show_list:{r_id}"), InlineKeyboardButton("⏰ 스케줄", callback_data=f"show_sched:{r_id}")]]
-        await query.edit_message_text(f"🎯 활성화됨 (ID: {r_id})", reply_markup=InlineKeyboardMarkup(btns))
+        await query.edit_message_text(f"🎯 활성화됨 (ID: {r_id})", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 리스트", callback_data=f"show_list:{r_id}"), InlineKeyboardButton("⏰ 스케줄", callback_data=f"show_sched:{r_id}")]]))
     elif data.startswith("show_list:"):
         r_id = data.split(":")[1]
-        target = col_main.find_one({"id": "bot_main_data"}).get("commands", {}) if r_id == "common" else (col_members.find_one({"chat_id": r_id}).get("local_commands", {}) if col_members.find_one({"chat_id": r_id}) else {})
+        target = col_main.find_one({"id": "bot_main_data"}).get("commands", {}) if r_id == "common" else (col_members.find_one({"chat_id": r_id}).get("local_commands", {}) or {})
         btns = [[InlineKeyboardButton(f"🗑 {k}", callback_data=f"del:{r_id}:{k}")] for k in target.keys()]
-        btns.append([InlineKeyboardButton("🔙 처음으로", callback_data="back_to_rooms")]); await query.edit_message_text("🗑 삭제 선택:", reply_markup=InlineKeyboardMarkup(btns))
+        btns.append([InlineKeyboardButton("🔙", callback_data="back")]); await query.edit_message_text("🗑 삭제 선택:", reply_markup=InlineKeyboardMarkup(btns))
     elif data.startswith("del:"):
         _, r_id, k = data.split(":", 2)
         if r_id == "common": col_main.update_one({"id": "bot_main_data"}, {"$unset": {f"commands.{k}": ""}})
         else: col_members.update_one({"chat_id": r_id}, {"$unset": {f"local_commands.{k}": ""}})
-        await query.answer("삭제 완료"); await handle_callback(update, context)
-    elif data == "back_to_rooms":
-        btns = [[InlineKeyboardButton("📁 [공용]", callback_data="set_room:common")]] + [[InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}") ] for r in list(col_members.find()) if "room_name" in r]
-        await query.edit_message_text("📂 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
+        await query.answer("완료"); await handle_callback(update, context)
+    elif data == "back":
+        btns = [[InlineKeyboardButton("📁 공용", callback_data="set_room:common")]] + [[InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}") ] for r in list(col_members.find()) if "room_name" in r]
+        await query.edit_message_text("📂 대상 선택:", reply_markup=InlineKeyboardMarkup(btns))
 
 async def post_init(application):
     await userbot.start()
