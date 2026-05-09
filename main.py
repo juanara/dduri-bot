@@ -9,15 +9,18 @@ from telethon.sessions import StringSession
 from telethon.tl.types import User
 from bson.objectid import ObjectId
 
-# 1. 설정 및 DB 연결
-logging.basicConfig(level=logging.INFO)
+# 1. 시스템 설정 및 로깅
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 KST = timezone(timedelta(hours=9))
 
+# 2. 환경 변수 및 DB 연결
 TOKEN = os.getenv("TOKEN")
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH")
 STRING_SESSION = os.getenv("STRING_SESSION")
 MONGO_URL = os.getenv("MONGO_URL")
+
+# 멀티 관리자 리스트 (쉼표 구분 대응)
 ADMIN_ID_STR = os.getenv("ADMIN_ID", "8472713103,8092185425")
 ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 
@@ -25,9 +28,11 @@ client = MongoClient(MONGO_URL)
 mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
 
+# 텔레톤 유저봇 및 캐시
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache, last_run_cache = {}, {}
 
+# [엔진] HTML 태그 밸런서 및 클리너
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -37,6 +42,10 @@ def balance_html(text):
         if opened > closed: text += f'</{tag}>' * (opened - closed)
         if closed > opened: text = f'<{tag}>' * (closed - opened) + text
     return text
+
+def clean_tags(t):
+    # 메타데이터(날짜, 시간, 숫자)에서 HTML 태그를 완전히 제거
+    return re.sub(r'<[^>]+>', '', str(t)).strip()
 
 async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -62,41 +71,27 @@ async def send_custom_output(bot, chat_id, data, title=""):
             if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
     except: pass
 
-# [수정] 날짜 비교 로직이 완벽해진 스케줄러 루프
 async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
     bot = application.bot
     while True:
         try:
             now = datetime.now(KST)
-            # 날짜(YYYYMMDD)와 시간(HHMM)을 분리해서 정확히 비교
-            now_date = now.strftime("%Y%m%d")
-            now_time = now.strftime("%H%M")
-            
+            now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
-                
-                # 1. 날짜 범위 체크 (사용자가 넣은 YYYYMMDD 형식과 일치시킴)
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
                     if now_date > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
                     continue
-                
-                # 2. 시간 범위 체크 (HHMM 형식 비교)
-                if not (s['slot_start'] <= now_time <= s['slot_end']): 
-                    continue
-                
-                # 3. 간격(Interval) 체크 및 발송
+                if not (s['slot_start'] <= now_time <= s['slot_end']): continue
                 last_run = last_run_cache.get(sid)
                 if not last_run or (now - last_run).total_seconds() >= s['interval'] * 60:
                     last_run_cache[sid] = now
                     if s['chat_id'] == "common":
-                        for r in list(col_members.find()): 
-                            await send_custom_output(bot, r['chat_id'], s['data'])
-                    else: 
-                        await send_custom_output(bot, s['chat_id'], s['data'])
-        except Exception as e:
-            logging.error(f"Scheduler Error: {e}")
-        await asyncio.sleep(20) # 20초마다 정밀 감시
+                        for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
+                    else: await send_custom_output(bot, s['chat_id'], s['data'])
+        except: pass
+        await asyncio.sleep(20)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
@@ -105,29 +100,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if await check_auth(update, context):
         if text == "/동기화":
-            msg = await update.message.reply_text("🔄 동기화 중...")
+            msg = await update.message.reply_text("🔄 DB 최신화 중")
             users = {str(u.id): html.escape(u.first_name) async for u in userbot.iter_participants(chat_id) if isinstance(u, User) and not u.bot and not u.deleted}
             col_members.update_one({"chat_id": str(chat_id)}, {"$set": {"room_name": update.effective_chat.title, "users": users}}, upsert=True)
-            await msg.edit_text(f"✅ 완료! 인원: {len(users)}명")
+            await msg.edit_text(f"✅ 동기화 완료 인원 {len(users)}명")
             return
         if text.startswith(("/all", "/전체공지")):
             room = col_members.find_one({"chat_id": str(chat_id)})
             m_list = list(room.get("users", {}).items()) if room else []
-            if not m_list: return await update.message.reply_text("❌ 동기화 먼저!")
-            await update.message.reply_text(f"📣 {len(m_list)}명 호출...")
+            if not m_list: return await update.message.reply_text("❌ 동기화 먼저 진행하세요")
+            await update.message.reply_text(f"📣 {len(m_list)}명 호출 시작")
             for i in range(0, len(m_list), 10):
                 mentions = [f"<a href='tg://user?id={mid}'>{mname}</a>" for mid, mname in m_list[i:i+10]]
                 await context.bot.send_message(chat_id, " ".join(mentions), parse_mode="HTML")
-                await asyncio.sleep(0.8)
+                await asyncio.sleep(1.2)
             return
 
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
-        # [핵심수정] /스케줄등록과 겹치지 않게 '정확히 일치'할 때만 메뉴 출력
         if text in ['/설정', '/리스트', '/삭제', '/스케줄']:
             btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
             for r in list(col_members.find()):
                 if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
-            return await update.message.reply_text("📂 관리 대상 선택:", reply_markup=InlineKeyboardMarkup(btns))
+            return await update.message.reply_text("📂 관리 대상 선택", reply_markup=InlineKeyboardMarkup(btns))
         
         raw_html = update.message.caption_html or update.message.text_html or ""
         if update.message.photo or any(x in raw_html.lower() for x in ["/personal", "/스케줄등록"]):
@@ -157,33 +151,33 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
     if not t_id or not raw_html: return
     try:
         if "/스케줄등록" in raw_html:
-            # 1. 원본 HTML에서 태그를 무시하고 텍스트만 분리
             h = [p.strip() for p in raw_html.split("/스케줄등록", 1)[1].strip().split("|", 4)]
-            intv_raw, content = h[4].split(None, 1)
+            intv_part = h[4].split(None, 1)
+            intv_raw = intv_part[0]
+            content = intv_part[1] if len(intv_part) > 1 else ""
             
-            # [핵심수정] 메타데이터(날짜, 시간, 간격)에서 HTML 태그 제거 로직 추가
-            def clean(t): return re.sub(r'<[^>]+>', '', t).strip()
-            
+            # [무결점 수정] 메타데이터에서 모든 HTML 태그를 제거하여 int() 에러 방지
             data = {
                 "chat_id": t_id, 
-                "name": clean(h[0]), 
-                "start_dt": clean(h[1]), 
-                "end_dt": clean(h[2]), 
-                "slot_start": clean(h[3]).replace("-","")[:4], 
-                "slot_end": clean(h[3]).replace("-","")[-4:], 
-                "interval": int(clean(intv_raw)), # 이제 </code>가 있어도 숫자만 쏙 골라냅니다
+                "name": clean_tags(h[0]), 
+                "start_dt": clean_tags(h[1]), 
+                "end_dt": clean_tags(h[2]), 
+                "slot_start": clean_tags(h[3]).replace("-","")[:4], 
+                "slot_end": clean_tags(h[3]).replace("-","")[-4:], 
+                "interval": int(clean_tags(intv_raw)), 
                 "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content.strip())}
             }
-            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ [{clean(h[0])}] 예약 완료")
+            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ {clean_tags(h[0])} 예약 완료")
         elif "/personal" in raw_html:
             m = re.search(r"/personal\s+(\S+)\s*(.*)", raw_html, re.IGNORECASE | re.DOTALL)
-            key, content = re.sub(r'<[^>]+>', '', m.group(1)).strip(), m.group(2)
+            key, content = clean_tags(m.group(1)), m.group(2)
             msg, btn = content.rsplit("---", 1) if "---" in content else (content, "")
             cmd_data = {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(msg.strip()), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
             if t_id == "common": col_main.update_one({"id": "bot_main_data"}, {"$set": {f"commands.{key}": cmd_data}}, upsert=True)
             else: col_members.update_one({"chat_id": t_id}, {"$set": {f"local_commands.{key}": cmd_data}}, upsert=True)
-            await context.bot.send_message(chat_id, f"✅ [{key}] 저장 완료")
-    except Exception as e: await context.bot.send_message(chat_id, f"❌ 오류: {e}")
+            await context.bot.send_message(chat_id, f"✅ {key} 저장 완료")
+    except Exception as e: 
+        await context.bot.send_message(chat_id, f"❌ 오류 발생 {clean_tags(str(e))}")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -192,16 +186,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     if data.startswith("set_room:"):
         r_id = data.split(":")[1]; col_sessions.update_one({"admin_id": uid}, {"$set": {"target_chat_id": r_id}}, upsert=True)
-        await query.edit_message_text(f"🎯 활성화 (ID: {r_id})", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 리스트", callback_data=f"show_list:{r_id}"), InlineKeyboardButton("⏰ 스케줄", callback_data=f"show_sched:{r_id}")]]))
+        await query.edit_message_text(f"🎯 활성화 ID {r_id}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 리스트", callback_data=f"show_list:{r_id}"), InlineKeyboardButton("⏰ 스케줄", callback_data=f"show_sched:{r_id}")]]))
     elif data.startswith("show_list:"):
         r_id = data.split(":")[1]
         target = col_main.find_one({"id": "bot_main_data"}).get("commands", {}) if r_id == "common" else (col_members.find_one({"chat_id": r_id}).get("local_commands", {}) or {})
         btns = [[InlineKeyboardButton(f"🗑 {k}", callback_data=f"del:{r_id}:{k}")] for k in target.keys()]
-        btns.append([InlineKeyboardButton("🔙", callback_data="back")]); await query.edit_message_text("🗑 삭제 선택:", reply_markup=InlineKeyboardMarkup(btns))
+        btns.append([InlineKeyboardButton("🔙", callback_data="back")]); await query.edit_message_text("🗑 삭제 선택", reply_markup=InlineKeyboardMarkup(btns))
     elif data.startswith("show_sched:"):
         r_id = data.split(":")[1]
         btns = [[InlineKeyboardButton(f"🗑 {s['name']}", callback_data=f"dsched:{s['_id']}")] for s in list(col_sched.find({"chat_id": r_id}))]
-        btns.append([InlineKeyboardButton("🔙", callback_data="back")]); await query.edit_message_text("⏰ 스케줄 목록:", reply_markup=InlineKeyboardMarkup(btns))
+        btns.append([InlineKeyboardButton("🔙", callback_data="back")]); await query.edit_message_text("⏰ 스케줄 목록", reply_markup=InlineKeyboardMarkup(btns))
     elif data.startswith("del:"):
         _, r_id, k = data.split(":", 2)
         if r_id == "common": col_main.update_one({"id": "bot_main_data"}, {"$unset": {f"commands.{k}": ""}})
@@ -211,7 +205,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         col_sched.delete_one({"_id": ObjectId(data.split(":")[1])}); await query.answer("삭제 완료"); await handle_callback(update, context)
     elif data == "back":
         btns = [[InlineKeyboardButton("📁 [공용]", callback_data="set_room:common")]] + [[InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}") ] for r in list(col_members.find()) if "room_name" in r]
-        await query.edit_message_text("📂 대상 선택:", reply_markup=InlineKeyboardMarkup(btns))
+        await query.edit_message_text("📂 대상 선택", reply_markup=InlineKeyboardMarkup(btns))
 
 async def post_init(application):
     await userbot.start()
