@@ -32,6 +32,9 @@ col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['m
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache, last_run_cache = {}, {}
 
+# [이벤트 변수] 생일 축하 발송 여부 플래그
+birthday_fired = False
+
 # [엔진] HTML 태그 밸런서 및 클리너
 def balance_html(text):
     if not text: return ""
@@ -72,20 +75,52 @@ async def send_custom_output(bot, chat_id, data, title=""):
     except: pass
 
 async def custom_scheduler_loop(application):
+    global birthday_fired
     await asyncio.sleep(10)
     bot = application.bot
     while True:
         try:
             now = datetime.now(KST)
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
+            
+            # [추가] 뷰누나 생일 축하 정시 음원 살포 엔진
+# 뷰누나 생일 축하 정시 정밀 타격 로직 1번 2번 3번 통합 버전
+            if now_date == "20260518" and now_time == "0000" and not birthday_fired:
+                birthday_fired = True
+                for r in list(col_members.find()):
+                    if "chat_id" in r:
+                        try:
+                            # 축하 멘트 먼저 깔끔하게 살포
+                            await bot.send_message(
+                                chat_id=r['chat_id'],
+                                text="✨ 뷰누나 생일을 진심으로 축하합니다 ✨",
+                                parse_mode="HTML"
+                            )
+                            # 1번, 2번, 3번 음원을 차례대로 전송
+                            for file_name in ["1.mp3", "2.mp3", "3.mp3"]:
+                                if os.path.exists(file_name):
+                                    with open(file_name, "rb") as audio_file:
+                                        await bot.send_audio(
+                                            chat_id=r['chat_id'],
+                                            audio=audio_file
+                                        )
+                        except: pass
+                        
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
                     if now_date > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
                     continue
                 if not (s['slot_start'] <= now_time <= s['slot_end']): continue
+                
                 last_run = last_run_cache.get(sid)
-                if not last_run or (now - last_run).total_seconds() >= s['interval'] * 60:
+                
+                # [수정] 새 스케줄 등록 즉시 출력되는 버그 차단
+                if last_run is None:
+                    last_run_cache[sid] = now
+                    continue
+                    
+                if (now - last_run).total_seconds() >= s['interval'] * 60:
                     last_run_cache[sid] = now
                     if s['chat_id'] == "common":
                         for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
@@ -156,18 +191,21 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
             intv_raw = intv_part[0]
             content = intv_part[1] if len(intv_part) > 1 else ""
             
-            # [무결점 수정] 메타데이터에서 모든 HTML 태그를 제거하여 int() 에러 방지
+            # [정밀 필터 적용] 메타데이터의 아스키 외 찌꺼기 문자 및 HTML 태그 완전 제거
+            def extract_num(t): return re.sub(r'[^0-9]', '', clean_tags(t))
+            def clean_meta(t): return clean_tags(t)
+            
             data = {
                 "chat_id": t_id, 
-                "name": clean_tags(h[0]), 
-                "start_dt": clean_tags(h[1]), 
-                "end_dt": clean_tags(h[2]), 
-                "slot_start": clean_tags(h[3]).replace("-","")[:4], 
-                "slot_end": clean_tags(h[3]).replace("-","")[-4:], 
-                "interval": int(clean_tags(intv_raw)), 
+                "name": clean_meta(h[0]), 
+                "start_dt": extract_num(h[1]), 
+                "end_dt": extract_num(h[2]), 
+                "slot_start": extract_num(h[3])[:4], 
+                "slot_end": extract_num(h[3])[-4:], 
+                "interval": int(extract_num(intv_raw)), 
                 "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content.strip())}
             }
-            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ {clean_tags(h[0])} 예약 완료")
+            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ {clean_meta(h[0])} 예약 완료")
         elif "/personal" in raw_html:
             m = re.search(r"/personal\s+(\S+)\s*(.*)", raw_html, re.IGNORECASE | re.DOTALL)
             key, content = clean_tags(m.group(1)), m.group(2)
