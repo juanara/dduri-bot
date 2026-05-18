@@ -389,12 +389,30 @@ def brick_game():
         let brickRowCount = 4; let brickColumnCount = 5; let brickWidth = 75; let brickHeight = 20; let brickPadding = 10; let brickOffsetTop = 30; let brickOffsetLeft = 30;
         let bricks = []; for (let c = 0; c < brickColumnCount; c++) { bricks[c] = []; for (let r = 0; r < brickRowCount; r++) { bricks[c][r] = { x: 0, y: 0, status: 1 }; } }
         
-        document.addEventListener("keydown", keyDownHandler, false); document.addEventListener("keyup", keyUpHandler, false); document.addEventListener("mousemove", mouseMoveHandler, false);
-        canvas.addEventListener("touchstart", touchHandler, {passive: true}); canvas.addEventListener("touchmove", touchHandler, {passive: true});
+        document.addEventListener("keydown", keyDownHandler, false); document.addEventListener("keyup", keyUpHandler, false);
+        canvas.addEventListener("mousemove", mouseMoveHandler, false);
+        // 모바일 화면 스크롤 간섭 차단을 위해 passive 옵션을 false로 변경
+        canvas.addEventListener("touchstart", touchHandler, {passive: false}); canvas.addEventListener("touchmove", touchHandler, {passive: false});
+        
         function keyDownHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = true; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = true; }
         function keyUpHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = false; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = false; }
-        function mouseMoveHandler(e) { const relativeX = e.clientX - canvas.offsetLeft; if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; } }
-        function touchHandler(e) { if(e.touches.length > 0) { const relativeX = e.touches[0].clientX - canvas.offsetLeft; if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; } } }
+        
+        // PC 마우스 좌표 정밀 보정
+        function mouseMoveHandler(e) {
+            const rect = canvas.getBoundingClientRect();
+            const relativeX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; }
+        }
+        
+        // 모바일 터치 좌표 스케일링 보정 및 화면 고정 모듈
+        function touchHandler(e) {
+            e.preventDefault(); // 모바일 브라우저의 끄덕임 및 스크롤 강제 차단
+            const rect = canvas.getBoundingClientRect();
+            if(e.touches.length > 0) {
+                const relativeX = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
+                if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; }
+            }
+        }
         
         function sendScore(finalScore) {
             if(!chat_id || !user_id) return;
