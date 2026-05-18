@@ -1,4 +1,5 @@
 import os, re, threading, asyncio, logging, html, requests, time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -210,7 +211,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # [미니게임 연동] 방 정보 및 유저 식별 데이터 연동 구역
     if text.startswith(('/game', '!game', '/게임', '!게임')):
-        import urllib.parse
         uname = urllib.parse.quote(update.effective_user.first_name)
         game_url = f"https://dduri-bot.onrender.com/game/brick?chat_id={chat_id}&user_id={uid}&user_name={uname}"
         keyboard = [[InlineKeyboardButton(text="🎮 벽돌깨기 미니앱 시작", url=game_url)]]
@@ -391,22 +391,19 @@ def brick_game():
         
         document.addEventListener("keydown", keyDownHandler, false); document.addEventListener("keyup", keyUpHandler, false);
         canvas.addEventListener("mousemove", mouseMoveHandler, false);
-        // 모바일 화면 스크롤 간섭 차단을 위해 passive 옵션을 false로 변경
         canvas.addEventListener("touchstart", touchHandler, {passive: false}); canvas.addEventListener("touchmove", touchHandler, {passive: false});
         
         function keyDownHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = true; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = true; }
         function keyUpHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = false; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = false; }
         
-        // PC 마우스 좌표 정밀 보정
         function mouseMoveHandler(e) {
             const rect = canvas.getBoundingClientRect();
             const relativeX = (e.clientX - rect.left) * (canvas.width / rect.width);
             if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; }
         }
         
-        // 모바일 터치 좌표 스케일링 보정 및 화면 고정 모듈
         function touchHandler(e) {
-            e.preventDefault(); // 모바일 브라우저의 끄덕임 및 스크롤 강제 차단
+            e.preventDefault();
             const rect = canvas.getBoundingClientRect();
             if(e.touches.length > 0) {
                 const relativeX = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
