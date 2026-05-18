@@ -32,9 +32,6 @@ col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['m
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
-# 이벤트 변수
-birthday_fired = False
-
 # [엔진] HTML 태그 밸런서 및 클리너
 def balance_html(text):
     if not text: return ""
@@ -60,40 +57,43 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_custom_output(bot, chat_id, data, title=""):
     try:
-        photos, caption, cid = data.get("photos", []), (f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']), str(chat_id)
+        c_str = str(chat_id).strip()
+        cid = int(c_str) if (c_str.isdigit() or (c_str.startswith('-') and c_str[1:].isdigit())) else c_str
+        
+        photos = data.get("photos", [])
+        caption = f"<b>{title}</b>\n\n{data['caption']}" if title else data['caption']
         markup = None
+        
         if data.get("buttons"):
             btns = [[InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b] for line in data["buttons"].split('\n')]
             if btns[0]: markup = InlineKeyboardMarkup(btns)
-        if not photos: await bot.send_message(cid, caption, parse_mode="HTML", reply_markup=markup)
-        elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
-        else:
-            media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]]
-            await bot.send_media_group(cid, media)
-            if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
-    except: pass
+            
+        try:
+            if not photos: await bot.send_message(cid, caption, parse_mode="HTML", reply_markup=markup)
+            elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
+            else:
+                media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]]
+                await bot.send_media_group(cid, media)
+                if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
+        except Exception as html_err:
+            logging.error(f"HTML 파싱 에러 우회 강제 발송 시스템 가동 {html_err}")
+            clean_caption = re.sub(r'<[^>]+>', '', caption)
+            if not photos: await bot.send_message(cid, clean_caption, reply_markup=markup)
+            elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=clean_caption, reply_markup=markup)
+            else:
+                media = [InputMediaPhoto(photos[0], caption=clean_caption)] + [InputMediaPhoto(f) for f in photos[1:]]
+                await bot.send_media_group(cid, media)
+                if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
+    except Exception as e:
+        logging.error(f"최종 출력 엔진 치명적 오류 {e}")
 
 async def custom_scheduler_loop(application):
-    global birthday_fired
     await asyncio.sleep(10)
     bot = application.bot
     while True:
         try:
             now = datetime.now(KST)
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
-            
-            # 생일 축하 로직
-            if now_date == "20260518" and now_time == "0000" and not birthday_fired:
-                birthday_fired = True
-                for r in list(col_members.find()):
-                    if "chat_id" in r:
-                        try:
-                            await bot.send_message(chat_id=r['chat_id'], text="✨ 뷰누나 생일을 진심으로 축하합니다 ✨", parse_mode="HTML")
-                            for file_name in ["1.mp3", "2.mp3", "3.mp3"]:
-                                if os.path.exists(file_name):
-                                    with open(file_name, "rb") as audio_file:
-                                        await bot.send_audio(chat_id=r['chat_id'], audio=audio_file)
-                        except: pass
             
             # 메인 스케줄러 루프
             for s in list(col_sched.find()):
@@ -103,20 +103,19 @@ async def custom_scheduler_loop(application):
                     continue
                 if not (s['slot_start'] <= now_time <= s['slot_end']): continue
                 
-                # DB에서 타임스탬프 로드
                 last_run_ts = s.get('last_run_ts')
                 
                 if last_run_ts is None:
                     col_sched.update_one({"_id": s['_id']}, {"$set": {"last_run_ts": now.timestamp()}})
                     continue
                     
-                # 영구 보존된 타임스탬프로 정확한 시간 비교
                 if now.timestamp() - last_run_ts >= s['interval'] * 60:
                     col_sched.update_one({"_id": s['_id']}, {"$set": {"last_run_ts": now.timestamp()}})
                     if s['chat_id'] == "common":
                         for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
                     else: await send_custom_output(bot, s['chat_id'], s['data'])
-        except: pass
+        except Exception as loop_err:
+            logging.error(f"스케줄러 루프 내부 차단 감지 {loop_err}")
         await asyncio.sleep(20)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -186,7 +185,6 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
             def clean_meta(t): return clean_tags(t)
             
             now = datetime.now(KST)
-            # 등록 시점에 현재 타임스탬프를 DB에 바로 박아넣어 즉시 발송 차단 및 시간 고정
             data = {
                 "chat_id": t_id, 
                 "name": clean_meta(h[0]), 
