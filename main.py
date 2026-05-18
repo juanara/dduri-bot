@@ -26,8 +26,10 @@ ADMIN_ID_STR = os.getenv("ADMIN_ID", "8092185425")
 ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 
 client = MongoClient(MONGO_URL)
-mongodb = client['dduri3_bot_db']
+mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
+
+
 
 # 텔레톤 유저봇 및 캐시 초기화
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
