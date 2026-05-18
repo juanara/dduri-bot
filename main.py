@@ -94,7 +94,6 @@ async def custom_scheduler_loop(application):
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
                 
-                # 디비 구조와 일치하도록 하이픈 없는 8자리 숫자로 날짜 비교 포맷 전면 수정
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
                     if now_date > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
                     continue
@@ -207,11 +206,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id, " ".join(mentions), parse_mode="HTML")
                 await asyncio.sleep(1.2)
             return
-if text.startswith(('/game', '!game', '/게임', '!게임')):
-            game_url = "https://dduri-bot.onrender.com/game/brick"
-            keyboard = [[InlineKeyboardButton(text="🎮 벽돌깨기 미니앱 시작", web_app=WebAppInfo(url=game_url))]]
-            await update.message.reply_text("🕹 <b>뜌리 미니앱 게임센터</b>\n\n아래 버튼을 누르면 텔레그램 내부 팝업으로 고품질 그래픽 벽돌깨기 게임이 즉시 구동됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-            return
+
+    # 게임 미니앱 진입 핸들러 정밀 들여쓰기 교정 완료
+    if text.startswith(('/game', '!game', '/게임', '!게임')):
+        game_url = "https://dduri-bot.onrender.com/game/brick"
+        keyboard = [[InlineKeyboardButton(text="🎮 벽돌깨기 미니앱 시작", web_app=WebAppInfo(url=game_url))]]
+        await update.message.reply_text("🕹 <b>뜌리 미니앱 게임센터</b>\n\n아래 버튼을 누르면 텔레그램 내부 팝업으로 고품질 그래픽 벽돌깨기 게임이 즉시 구동됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+
     if text.startswith(('/날씨', '!날씨')):
         parts = text.split(None, 1)
         input_city = parts[1].strip() if len(parts) > 1 else "수원"
@@ -333,10 +335,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
         await query.edit_message_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
 
-# Flask 헬스체크
+# Flask 헬스체크 및 미니앱 게임 뷰 통합
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
+
 @flask_app.route('/game/brick')
 def brick_game():
     return """<!DOCTYPE html>
@@ -378,6 +381,7 @@ def brick_game():
     </script>
 </body>
 </html>"""
+
 def run_flask():
     flask_app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
