@@ -2,7 +2,7 @@ import os, re, threading, asyncio, logging, html, requests, time
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from flask import Flask
+from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -28,6 +28,7 @@ ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 client = MongoClient(MONGO_URL)
 mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
+col_scores = mongodb['game_scores']
 
 # 텔레톤 유저봇 및 캐시 초기화
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
@@ -81,7 +82,7 @@ async def send_custom_output(bot, chat_id, data, title=""):
     except Exception as e:
         logging.error(f"Output Error: {e}")
 
-# 엔진 3 스케줄러 루프 날짜 비교 포맷 정밀 교정 완료
+# 엔진 3 스케줄러 루프
 async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
     bot = application.bot
@@ -207,11 +208,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # 게임 미니앱 진입 핸들러 정밀 들여쓰기 교정 완료
+    # [미니게임 연동] 방 정보 및 유저 식별 데이터 연동 구역
     if text.startswith(('/game', '!game', '/게임', '!게임')):
-        game_url = "https://dduri-bot.onrender.com/game/brick"
-        keyboard = [[InlineKeyboardButton(text="🎮 벽돌깨기 미니앱 시작", web_app=WebAppInfo(url=game_url))]]
+        import urllib.parse
+        uname = urllib.parse.quote(update.effective_user.first_name)
+        game_url = f"https://dduri-bot.onrender.com/game/brick?chat_id={chat_id}&user_id={uid}&user_name={uname}"
+        keyboard = [[InlineKeyboardButton(text="🎮 벽돌깨기 미니앱 시작", url=game_url)]]
         await update.message.reply_text("🕹 <b>뜌리 미니앱 게임센터</b>\n\n아래 버튼을 누르면 텔레그램 내부 팝업으로 고품질 그래픽 벽돌깨기 게임이 즉시 구동됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+
+    # [랭킹 시스템] 각 채팅방 고유의 실시간 스코어보드 출력 구역
+    if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
+        records = list(col_scores.find({"chat_id": str(chat_id)}).sort("score", -1).limit(10))
+        if not records:
+            await update.message.reply_text("🏆 아직 등록된 게임 점수가 없습니다. 첫 번째 주인공이 되어보세요!")
+            return
+        
+        msg = "🏆 <b>우리 방 벽돌깨기 실시간 TOP 10 랭킹</b>\n\n"
+        for idx, r in enumerate(records, 1):
+            msg += f"{idx}위 : {r['user_name']} - {r['score']}점\n"
+        await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     if text.startswith(('/날씨', '!날씨')):
@@ -335,8 +351,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
         await query.edit_message_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
 
-# Flask 헬스체크 및 미니앱 게임 뷰 통합
+# Flask 웹 서버 및 엔드포인트 구역
 flask_app = Flask(__name__)
+
 @flask_app.route('/')
 def home(): return "OK", 200
 
@@ -360,27 +377,59 @@ def brick_game():
     <canvas id="gameCanvas" width="480" height="320"></canvas>
     <button class="btn" onclick="document.location.reload()">다시 시작</button>
     <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const chat_id = urlParams.get('chat_id') || '';
+        const user_id = urlParams.get('user_id') || '';
+        const user_name = urlParams.get('user_name') || '유저';
+
         const canvas = document.getElementById("gameCanvas"); const ctx = canvas.getContext("2d"); let score = 0;
         let ballRadius = 8; let x = canvas.width / 2; let y = canvas.height - 30; let dx = 3; let dy = -3;
         let paddleHeight = 12; let paddleWidth = 75; let paddleX = (canvas.width - paddleWidth) / 2;
         let rightPressed = false; let leftPressed = false;
         let brickRowCount = 4; let brickColumnCount = 5; let brickWidth = 75; let brickHeight = 20; let brickPadding = 10; let brickOffsetTop = 30; let brickOffsetLeft = 30;
         let bricks = []; for (let c = 0; c < brickColumnCount; c++) { bricks[c] = []; for (let r = 0; r < brickRowCount; r++) { bricks[c][r] = { x: 0, y: 0, status: 1 }; } }
+        
         document.addEventListener("keydown", keyDownHandler, false); document.addEventListener("keyup", keyUpHandler, false); document.addEventListener("mousemove", mouseMoveHandler, false);
         canvas.addEventListener("touchstart", touchHandler, {passive: true}); canvas.addEventListener("touchmove", touchHandler, {passive: true});
         function keyDownHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = true; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = true; }
         function keyUpHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = false; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = false; }
         function mouseMoveHandler(e) { const relativeX = e.clientX - canvas.offsetLeft; if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; } }
         function touchHandler(e) { if(e.touches.length > 0) { const relativeX = e.touches[0].clientX - canvas.offsetLeft; if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; } } }
-        function collisionDetection() { for (let c = 0; c < brickColumnCount; c++) { for (let r = 0; r < brickRowCount; r++) { let b = bricks[c][r]; if (b.status === 1) { if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) { dy = -dy; b.status = 0; score += 10; document.getElementById("score").innerText = "SCORE: " + score; if (score === brickRowCount * brickColumnCount * 10) { alert("축하합니다! 승리하셨습니다!"); document.location.reload(); } } } } } }
+        
+        function sendScore(finalScore) {
+            if(!chat_id || !user_id) return;
+            fetch('/game/submit_score', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chat_id, user_id: user_id, user_name: user_name, score: finalScore })
+            });
+        }
+
+        function collisionDetection() { for (let c = 0; c < brickColumnCount; c++) { for (let r = 0; r < brickRowCount; r++) { let b = bricks[c][r]; if (b.status === 1) { if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) { dy = -dy; b.status = 0; score += 10; document.getElementById("score").innerText = "SCORE: " + score; if (score === brickRowCount * brickColumnCount * 10) { sendScore(score); alert("축하합니다! 승리하셨습니다!"); document.location.reload(); } } } } } }
         function drawBall() { ctx.beginPath(); ctx.arc(x, y, ballRadius, 0, Math.PI * 2); ctx.fillStyle = "#00ffcc"; ctx.fill(); ctx.closePath(); }
         function drawPaddle() { ctx.beginPath(); ctx.rect(paddleX, canvas.height - paddleHeight, paddleWidth, paddleHeight); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.closePath(); }
         function drawBricks() { for (let c = 0; c < brickColumnCount; c++) { for (let r = 0; r < brickRowCount; r++) { if (bricks[c][r].status === 1) { let brickX = c * (brickWidth + brickPadding) + brickOffsetLeft; let brickY = r * (brickHeight + brickPadding) + brickOffsetTop; bricks[c][r].x = brickX; bricks[c][r].y = brickY; ctx.beginPath(); ctx.rect(brickX, brickY, brickWidth, brickHeight); ctx.fillStyle = "hsl(" + (c * 45) + ", 100%, 60%)"; ctx.fill(); ctx.closePath(); } } } }
-        function draw() { ctx.clearRect(0, 0, canvas.width, canvas.height); drawBricks(); drawBall(); drawPaddle(); collisionDetection(); if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx; if (y + dy < ballRadius) { dy = -dy; } else if (y + dy > canvas.height - ballRadius) { if (x > paddleX && x < paddleX + paddleWidth) { dy = -dy; } else { alert("게임 오버!"); document.location.reload(); return; } } if (rightPressed && paddleX < canvas.width - paddleWidth) paddleX += 5; else if (leftPressed && paddleX > 0) paddleX -= 5; x += dx; y += dy; requestAnimationFrame(draw); }
+        function draw() { ctx.clearRect(0, 0, canvas.width, canvas.height); drawBricks(); drawBall(); drawPaddle(); collisionDetection(); if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx; if (y + dy < ballRadius) { dy = -dy; } else if (y + dy > canvas.height - ballRadius) { if (x > paddleX && x < paddleX + paddleWidth) { dy = -dy; } else { sendScore(score); alert("게임 오버!"); document.location.reload(); return; } } if (rightPressed && paddleX < canvas.width - paddleWidth) paddleX += 5; else if (leftPressed && paddleX > 0) paddleX -= 5; x += dx; y += dy; requestAnimationFrame(draw); }
         draw();
     </script>
 </body>
 </html>"""
+
+@flask_app.route('/game/submit_score', methods=['POST'])
+def submit_score():
+    data = request.json
+    if not data: return jsonify({"status": "error"}), 400
+    chat_id = str(data.get('chat_id'))
+    user_id = str(data.get('user_id'))
+    user_name = data.get('user_name', '유저')
+    score = int(data.get('score', 0))
+    
+    col_scores.update_one(
+        {"chat_id": chat_id, "user_id": user_id},
+        {"$set": {"user_name": user_name}, "$max": {"score": score}},
+        upsert=True
+    )
+    return jsonify({"status": "success"}), 200
 
 def run_flask():
     flask_app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
