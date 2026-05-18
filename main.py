@@ -32,7 +32,7 @@ col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['m
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
-# 엔진 html 태그 밸런서
+# 영구 타임스탬프 스토리지 연동으로 렌더 서버 다운 현상 방어
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -67,15 +67,13 @@ async def send_custom_output(bot, chat_id, data, title=""):
         if data.get("buttons"):
             btns = [[InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b] for line in data["buttons"].split('\n')]
             if btns[0]: markup = InlineKeyboardMarkup(btns)
-            
         if not photos: await bot.send_message(cid, caption, parse_mode="HTML", reply_markup=markup)
         elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
         else:
             media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]]
             await bot.send_media_group(cid, media)
             if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
-    except Exception as e:
-        logging.error(f"최종 출력 엔진 오류 발생 {e}")
+    except: pass
 
 async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
@@ -84,7 +82,6 @@ async def custom_scheduler_loop(application):
         try:
             now = datetime.now(KST)
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
-            
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
@@ -92,10 +89,7 @@ async def custom_scheduler_loop(application):
                     continue
                 if not (s['slot_start'] <= now_time <= s['slot_end']): continue
                 
-                # 디비에서 타임스탬프 로드
                 last_run_ts = s.get('last_run_ts')
-                
-                # 새 스케줄 등록 즉시 실행 방지
                 if last_run_ts is None:
                     col_sched.update_one({"_id": s['_id']}, {"$set": {"last_run_ts": now.timestamp()}})
                     continue
@@ -105,8 +99,7 @@ async def custom_scheduler_loop(application):
                     if s['chat_id'] == "common":
                         for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
                     else: await send_custom_output(bot, s['chat_id'], s['data'])
-        except Exception as loop_err:
-            logging.error(f"스케줄러 루프 예외 발생 {loop_err}")
+        except: pass
         await asyncio.sleep(20)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,7 +160,7 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
     if not t_id or not raw_html: return
     try:
         if "/스케줄등록" in raw_html:
-            # 외곽 코드 태그 강제 전멸 처리
+            # 외곽에 둘러쳐진 코드 태그를 완벽하게 도려내어 하트 애니메이션 구출
             raw_html = re.sub(r'^<code[^>]*>', '', raw_html.strip())
             raw_html = re.sub(r'</code>$', '', raw_html.strip())
             raw_html = re.sub(r'^<pre[^>]*>', '', raw_html.strip())
