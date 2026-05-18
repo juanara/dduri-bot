@@ -32,7 +32,7 @@ col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['m
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
-# 영구 타임스탬프 스토리지 연동으로 렌더 서버 다운 현상 방어
+# 엔진 HTML 태그 밸런서
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -67,13 +67,15 @@ async def send_custom_output(bot, chat_id, data, title=""):
         if data.get("buttons"):
             btns = [[InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b] for line in data["buttons"].split('\n')]
             if btns[0]: markup = InlineKeyboardMarkup(btns)
+            
         if not photos: await bot.send_message(cid, caption, parse_mode="HTML", reply_markup=markup)
         elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
         else:
             media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]]
             await bot.send_media_group(cid, media)
             if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
-    except: pass
+    except Exception as e:
+        logging.error(f"최종 출력 엔진 오류 발생 {e}")
 
 async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
@@ -82,6 +84,7 @@ async def custom_scheduler_loop(application):
         try:
             now = datetime.now(KST)
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
+            
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
@@ -90,6 +93,8 @@ async def custom_scheduler_loop(application):
                 if not (s['slot_start'] <= now_time <= s['slot_end']): continue
                 
                 last_run_ts = s.get('last_run_ts')
+                
+                # 등록 즉시 실행 방지 조건 유지
                 if last_run_ts is None:
                     col_sched.update_one({"_id": s['_id']}, {"$set": {"last_run_ts": now.timestamp()}})
                     continue
@@ -99,7 +104,8 @@ async def custom_scheduler_loop(application):
                     if s['chat_id'] == "common":
                         for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
                     else: await send_custom_output(bot, s['chat_id'], s['data'])
-        except: pass
+        except Exception as loop_err:
+            logging.error(f"스케줄러 루프 예외 발생 {loop_err}")
         await asyncio.sleep(20)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -160,33 +166,52 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
     if not t_id or not raw_html: return
     try:
         if "/스케줄등록" in raw_html:
-            # 외곽에 둘러쳐진 코드 태그를 완벽하게 도려내어 하트 애니메이션 구출
-            raw_html = re.sub(r'^<code[^>]*>', '', raw_html.strip())
-            raw_html = re.sub(r'</code>$', '', raw_html.strip())
-            raw_html = re.sub(r'^<pre[^>]*>', '', raw_html.strip())
-            raw_html = re.sub(r'</pre>$', '', raw_html.strip())
+            # 1단계 텔레그램 코드 블록 전체 차단 및 태그 정화 엔진 가동
+            cleaned = raw_html.strip()
+            cleaned = re.sub(r'</?(pre|code)[^>]*>', '', cleaned)
 
-            h = [p.strip() for p in raw_html.split("/스케줄등록", 1)[1].strip().split("|", 4)]
-            intv_part = h[4].split(None, 1)
-            intv_raw = intv_part[0]
-            content = intv_part[1] if len(intv_part) > 1 else ""
-            
-            def extract_num(t): return re.sub(r'[^0-9]', '', clean_tags(t))
-            def clean_meta(t): return clean_tags(t)
+            # 2단계 정규식 기반 정밀 필드 추출 및 내용 분리 로직 실행
+            match = re.search(r'/스케줄등록\s*([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|(\d+)(.*)', cleaned, re.DOTALL)
+            if not match:
+                raise ValueError("스케줄 등록 형식이 올바르지 않습니다 명확히 파이프 기호로 구분하여 입력하세요")
+
+            name = clean_tags(match.group(1))
+            start_dt = re.sub(r'[^0-9]', '', clean_tags(match.group(2)))
+            end_dt = re.sub(r'[^0-9]', '', clean_tags(match.group(3)))
+            time_range = re.sub(r'[^0-9-~]', '', clean_tags(match.group(4)))
+            interval = int(match.group(5))
+            content = match.group(6).strip()
+
+            # 3단계 시작일 종료일 캘린더 정밀 검증 알고리즘
+            try:
+                datetime.strptime(start_dt, "%Y%m%d")
+                datetime.strptime(end_dt, "%Y%m%d")
+            except:
+                raise ValueError("날짜 형식이 잘못되었습니다 년월일 8자리 숫자로 정확히 입력하세요")
+
+            # 4단계 시간 포맷 유연성 보정 장치
+            times = re.findall(r'\d{4}', time_range)
+            if len(times) < 2:
+                raise ValueError("시간 범위 설정이 올바르지 않습니다 시작시간과 종료시간을 4자리 숫자로 분리하여 입력하세요 예시 0900-2300")
+            slot_start, slot_end = times[0], times[1]
+
+            # 5단계 빈 공지 발송 예외 완전 통제
+            if not clean_tags(content).strip():
+                raise ValueError("등록할 공지 내용이 비어 있습니다 메시지 본문을 함께 작성하세요")
             
             now = datetime.now(KST)
             data = {
                 "chat_id": t_id, 
-                "name": clean_meta(h[0]), 
-                "start_dt": extract_num(h[1]), 
-                "end_dt": extract_num(h[2]), 
-                "slot_start": extract_num(h[3])[:4], 
-                "slot_end": extract_num(h[3])[-4:], 
-                "interval": int(extract_num(intv_raw)), 
+                "name": name, 
+                "start_dt": start_dt, 
+                "end_dt": end_dt, 
+                "slot_start": slot_start, 
+                "slot_end": slot_end, 
+                "interval": interval, 
                 "last_run_ts": now.timestamp(), 
-                "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content.strip())}
+                "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content)}
             }
-            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ {clean_meta(h[0])} 예약 완료")
+            col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ {name} 예약 완료")
         elif "/personal" in raw_html:
             m = re.search(r"/personal\s+(\S+)\s*(.*)", raw_html, re.IGNORECASE | re.DOTALL)
             key, content = clean_tags(m.group(1)), m.group(2)
