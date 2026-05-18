@@ -1,6 +1,6 @@
 import os, re, threading, asyncio, logging, html, requests, time
 from datetime import datetime, timedelta, timezone
-from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from flask import Flask
 from pymongo import MongoClient
@@ -207,7 +207,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id, " ".join(mentions), parse_mode="HTML")
                 await asyncio.sleep(1.2)
             return
-
+if text.startswith(('/game', '!game', '/게임', '!게임')):
+            game_url = "https://dduri-bot.onrender.com/game/brick"
+            keyboard = [[InlineKeyboardButton(text="🎮 벽돌깨기 미니앱 시작", web_app=WebAppInfo(url=game_url))]]
+            await update.message.reply_text("🕹 <b>뜌리 미니앱 게임센터</b>\n\n아래 버튼을 누르면 텔레그램 내부 팝업으로 고품질 그래픽 벽돌깨기 게임이 즉시 구동됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            return
     if text.startswith(('/날씨', '!날씨')):
         parts = text.split(None, 1)
         input_city = parts[1].strip() if len(parts) > 1 else "수원"
@@ -333,7 +337,47 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
-
+@flask_app.route('/game/brick')
+def brick_game():
+    return """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>뜌리 브릭 브레이커</title>
+    <style>
+        body { margin: 0; background: #111; color: #fff; text-align: center; font-family: sans-serif; overflow: hidden; }
+        canvas { background: #222; display: block; margin: 20px auto; border: 4px solid #444; max-width: 95vw; max-height: 70vh; }
+        #score { font-size: 24px; font-weight: bold; margin-top: 10px; color: #00ffcc; }
+        .btn { padding: 10px 20px; font-size: 16px; background: #00ffcc; border: none; border-radius: 5px; color: #111; cursor: pointer; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="score">SCORE: 0</div>
+    <canvas id="gameCanvas" width="480" height="320"></canvas>
+    <button class="btn" onclick="document.location.reload()">다시 시작</button>
+    <script>
+        const canvas = document.getElementById("gameCanvas"); const ctx = canvas.getContext("2d"); let score = 0;
+        let ballRadius = 8; let x = canvas.width / 2; let y = canvas.height - 30; let dx = 3; let dy = -3;
+        let paddleHeight = 12; let paddleWidth = 75; let paddleX = (canvas.width - paddleWidth) / 2;
+        let rightPressed = false; let leftPressed = false;
+        let brickRowCount = 4; let brickColumnCount = 5; let brickWidth = 75; let brickHeight = 20; let brickPadding = 10; let brickOffsetTop = 30; let brickOffsetLeft = 30;
+        let bricks = []; for (let c = 0; c < brickColumnCount; c++) { bricks[c] = []; for (let r = 0; r < brickRowCount; r++) { bricks[c][r] = { x: 0, y: 0, status: 1 }; } }
+        document.addEventListener("keydown", keyDownHandler, false); document.addEventListener("keyup", keyUpHandler, false); document.addEventListener("mousemove", mouseMoveHandler, false);
+        canvas.addEventListener("touchstart", touchHandler, {passive: true}); canvas.addEventListener("touchmove", touchHandler, {passive: true});
+        function keyDownHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = true; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = true; }
+        function keyUpHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = false; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = false; }
+        function mouseMoveHandler(e) { const relativeX = e.clientX - canvas.offsetLeft; if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; } }
+        function touchHandler(e) { if(e.touches.length > 0) { const relativeX = e.touches[0].clientX - canvas.offsetLeft; if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; } } }
+        function collisionDetection() { for (let c = 0; c < brickColumnCount; c++) { for (let r = 0; r < brickRowCount; r++) { let b = bricks[c][r]; if (b.status === 1) { if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) { dy = -dy; b.status = 0; score += 10; document.getElementById("score").innerText = "SCORE: " + score; if (score === brickRowCount * brickColumnCount * 10) { alert("축하합니다! 승리하셨습니다!"); document.location.reload(); } } } } } }
+        function drawBall() { ctx.beginPath(); ctx.arc(x, y, ballRadius, 0, Math.PI * 2); ctx.fillStyle = "#00ffcc"; ctx.fill(); ctx.closePath(); }
+        function drawPaddle() { ctx.beginPath(); ctx.rect(paddleX, canvas.height - paddleHeight, paddleWidth, paddleHeight); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.closePath(); }
+        function drawBricks() { for (let c = 0; c < brickColumnCount; c++) { for (let r = 0; r < brickRowCount; r++) { if (bricks[c][r].status === 1) { let brickX = c * (brickWidth + brickPadding) + brickOffsetLeft; let brickY = r * (brickHeight + brickPadding) + brickOffsetTop; bricks[c][r].x = brickX; bricks[c][r].y = brickY; ctx.beginPath(); ctx.rect(brickX, brickY, brickWidth, brickHeight); ctx.fillStyle = "hsl(" + (c * 45) + ", 100%, 60%)"; ctx.fill(); ctx.closePath(); } } } }
+        function draw() { ctx.clearRect(0, 0, canvas.width, canvas.height); drawBricks(); drawBall(); drawPaddle(); collisionDetection(); if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx; if (y + dy < ballRadius) { dy = -dy; } else if (y + dy > canvas.height - ballRadius) { if (x > paddleX && x < paddleX + paddleWidth) { dy = -dy; } else { alert("게임 오버!"); document.location.reload(); return; } } if (rightPressed && paddleX < canvas.width - paddleWidth) paddleX += 5; else if (leftPressed && paddleX > 0) paddleX -= 5; x += dx; y += dy; requestAnimationFrame(draw); }
+        draw();
+    </script>
+</body>
+</html>"""
 def run_flask():
     flask_app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
