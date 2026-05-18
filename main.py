@@ -32,7 +32,7 @@ col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['m
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
-# [엔진] HTML 태그 밸런서 및 클리너
+# 엔진 html 태그 밸런서
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -68,24 +68,14 @@ async def send_custom_output(bot, chat_id, data, title=""):
             btns = [[InlineKeyboardButton(b.split('|')[0].strip(), url=b.split('|')[1].strip()) for b in line.split('&&') if '|' in b] for line in data["buttons"].split('\n')]
             if btns[0]: markup = InlineKeyboardMarkup(btns)
             
-        try:
-            if not photos: await bot.send_message(cid, caption, parse_mode="HTML", reply_markup=markup)
-            elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
-            else:
-                media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]]
-                await bot.send_media_group(cid, media)
-                if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
-        except Exception as html_err:
-            logging.error(f"HTML 파싱 에러 우회 강제 발송 시스템 가동 {html_err}")
-            clean_caption = re.sub(r'<[^>]+>', '', caption)
-            if not photos: await bot.send_message(cid, clean_caption, reply_markup=markup)
-            elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=clean_caption, reply_markup=markup)
-            else:
-                media = [InputMediaPhoto(photos[0], caption=clean_caption)] + [InputMediaPhoto(f) for f in photos[1:]]
-                await bot.send_media_group(cid, media)
-                if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
+        if not photos: await bot.send_message(cid, caption, parse_mode="HTML", reply_markup=markup)
+        elif len(photos) == 1: await bot.send_photo(cid, photos[0], caption=caption, parse_mode="HTML", reply_markup=markup)
+        else:
+            media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")] + [InputMediaPhoto(f) for f in photos[1:]]
+            await bot.send_media_group(cid, media)
+            if markup: await bot.send_message(cid, "⚡️ 버튼 확인", reply_markup=markup)
     except Exception as e:
-        logging.error(f"최종 출력 엔진 치명적 오류 {e}")
+        logging.error(f"최종 출력 엔진 오류 발생 {e}")
 
 async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
@@ -95,7 +85,6 @@ async def custom_scheduler_loop(application):
             now = datetime.now(KST)
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
             
-            # 메인 스케줄러 루프
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
@@ -103,8 +92,10 @@ async def custom_scheduler_loop(application):
                     continue
                 if not (s['slot_start'] <= now_time <= s['slot_end']): continue
                 
+                # 디비에서 타임스탬프 로드
                 last_run_ts = s.get('last_run_ts')
                 
+                # 새 스케줄 등록 즉시 실행 방지
                 if last_run_ts is None:
                     col_sched.update_one({"_id": s['_id']}, {"$set": {"last_run_ts": now.timestamp()}})
                     continue
@@ -115,7 +106,7 @@ async def custom_scheduler_loop(application):
                         for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
                     else: await send_custom_output(bot, s['chat_id'], s['data'])
         except Exception as loop_err:
-            logging.error(f"스케줄러 루프 내부 차단 감지 {loop_err}")
+            logging.error(f"스케줄러 루프 예외 발생 {loop_err}")
         await asyncio.sleep(20)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -143,7 +134,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
         if text in ['/설정', '/리스트', '/삭제', '/스케줄']:
-            btns = [[InlineKeyboardButton("📁 [공용] 설정", callback_data="set_room:common")]]
+            btns = [[InlineKeyboardButton("📁 공용 설정", callback_data="set_room:common")]]
             for r in list(col_members.find()):
                 if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
             return await update.message.reply_text("📂 관리 대상 선택", reply_markup=InlineKeyboardMarkup(btns))
@@ -176,6 +167,12 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
     if not t_id or not raw_html: return
     try:
         if "/스케줄등록" in raw_html:
+            # 외곽 코드 태그 강제 전멸 처리
+            raw_html = re.sub(r'^<code[^>]*>', '', raw_html.strip())
+            raw_html = re.sub(r'</code>$', '', raw_html.strip())
+            raw_html = re.sub(r'^<pre[^>]*>', '', raw_html.strip())
+            raw_html = re.sub(r'</pre>$', '', raw_html.strip())
+
             h = [p.strip() for p in raw_html.split("/스케줄등록", 1)[1].strip().split("|", 4)]
             intv_part = h[4].split(None, 1)
             intv_raw = intv_part[0]
@@ -233,7 +230,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("dsched:"):
         col_sched.delete_one({"_id": ObjectId(data.split(":")[1])}); await query.answer("삭제 완료"); await handle_callback(update, context)
     elif data == "back":
-        btns = [[InlineKeyboardButton("📁 [공용]", callback_data="set_room:common")]] + [[InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}") ] for r in list(col_members.find()) if "room_name" in r]
+        btns = [[InlineKeyboardButton("📁 공용", callback_data="set_room:common")]] + [[InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}") ] for r in list(col_members.find()) if "room_name" in r]
         await query.edit_message_text("📂 대상 선택", reply_markup=InlineKeyboardMarkup(btns))
 
 async def post_init(application):
