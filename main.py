@@ -20,7 +20,7 @@ API_HASH = os.getenv("API_HASH")
 STRING_SESSION = os.getenv("STRING_SESSION")
 MONGO_URL = os.getenv("MONGO_URL")
 
-# 멀티 관리자 리스트 (쉼표 구분 대응)
+# 멀티 관리자 리스트
 ADMIN_ID_STR = os.getenv("ADMIN_ID", "8472713103,8092185425")
 ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 
@@ -30,9 +30,9 @@ col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['m
 
 # 텔레톤 유저봇 및 캐시
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
-media_group_cache, last_run_cache = {}, {}
+media_group_cache = {}
 
-# [이벤트 변수] 생일 축하 발송 여부 플래그
+# 이벤트 변수
 birthday_fired = False
 
 # [엔진] HTML 태그 밸런서 및 클리너
@@ -47,7 +47,6 @@ def balance_html(text):
     return text
 
 def clean_tags(t):
-    # 메타데이터(날짜, 시간, 숫자)에서 HTML 태그를 완전히 제거
     return re.sub(r'<[^>]+>', '', str(t)).strip()
 
 async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,29 +82,20 @@ async def custom_scheduler_loop(application):
             now = datetime.now(KST)
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
             
-            # [추가] 뷰누나 생일 축하 정시 음원 살포 엔진
-# 뷰누나 생일 축하 정시 정밀 타격 로직 1번 2번 3번 통합 버전
+            # 생일 축하 로직
             if now_date == "20260518" and now_time == "0000" and not birthday_fired:
                 birthday_fired = True
                 for r in list(col_members.find()):
                     if "chat_id" in r:
                         try:
-                            # 축하 멘트 먼저 깔끔하게 살포
-                            await bot.send_message(
-                                chat_id=r['chat_id'],
-                                text="✨ 뷰누나 생일을 진심으로 축하합니다 ✨",
-                                parse_mode="HTML"
-                            )
-                            # 1번, 2번, 3번 음원을 차례대로 전송
+                            await bot.send_message(chat_id=r['chat_id'], text="✨ 뷰누나 생일을 진심으로 축하합니다 ✨", parse_mode="HTML")
                             for file_name in ["1.mp3", "2.mp3", "3.mp3"]:
                                 if os.path.exists(file_name):
                                     with open(file_name, "rb") as audio_file:
-                                        await bot.send_audio(
-                                            chat_id=r['chat_id'],
-                                            audio=audio_file
-                                        )
+                                        await bot.send_audio(chat_id=r['chat_id'], audio=audio_file)
                         except: pass
-                        
+            
+            # 메인 스케줄러 루프
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
@@ -113,15 +103,16 @@ async def custom_scheduler_loop(application):
                     continue
                 if not (s['slot_start'] <= now_time <= s['slot_end']): continue
                 
-                last_run = last_run_cache.get(sid)
+                # DB에서 타임스탬프 로드
+                last_run_ts = s.get('last_run_ts')
                 
-                # [수정] 새 스케줄 등록 즉시 출력되는 버그 차단
-                if last_run is None:
-                    last_run_cache[sid] = now
+                if last_run_ts is None:
+                    col_sched.update_one({"_id": s['_id']}, {"$set": {"last_run_ts": now.timestamp()}})
                     continue
                     
-                if (now - last_run).total_seconds() >= s['interval'] * 60:
-                    last_run_cache[sid] = now
+                # 영구 보존된 타임스탬프로 정확한 시간 비교
+                if now.timestamp() - last_run_ts >= s['interval'] * 60:
+                    col_sched.update_one({"_id": s['_id']}, {"$set": {"last_run_ts": now.timestamp()}})
                     if s['chat_id'] == "common":
                         for r in list(col_members.find()): await send_custom_output(bot, r['chat_id'], s['data'])
                     else: await send_custom_output(bot, s['chat_id'], s['data'])
@@ -191,10 +182,11 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
             intv_raw = intv_part[0]
             content = intv_part[1] if len(intv_part) > 1 else ""
             
-            # [정밀 필터 적용] 메타데이터의 아스키 외 찌꺼기 문자 및 HTML 태그 완전 제거
             def extract_num(t): return re.sub(r'[^0-9]', '', clean_tags(t))
             def clean_meta(t): return clean_tags(t)
             
+            now = datetime.now(KST)
+            # 등록 시점에 현재 타임스탬프를 DB에 바로 박아넣어 즉시 발송 차단 및 시간 고정
             data = {
                 "chat_id": t_id, 
                 "name": clean_meta(h[0]), 
@@ -203,6 +195,7 @@ async def save_logic(chat_id, context, m_id, uid, message=None):
                 "slot_start": extract_num(h[3])[:4], 
                 "slot_end": extract_num(h[3])[-4:], 
                 "interval": int(extract_num(intv_raw)), 
+                "last_run_ts": now.timestamp(), 
                 "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content.strip())}
             }
             col_sched.insert_one(data); await context.bot.send_message(chat_id, f"✅ {clean_meta(h[0])} 예약 완료")
