@@ -1,4 +1,4 @@
-import os, re, threading, asyncio, logging, html, requests
+import os, re, threading, asyncio, logging, html, requests, time
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -21,15 +21,13 @@ STRING_SESSION = os.getenv("STRING_SESSION")
 MONGO_URL = os.getenv("MONGO_URL")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# 멀티 관리자 설정 대응
+# 관리자 설정 대응
 ADMIN_ID_STR = os.getenv("ADMIN_ID", "8092185425")
 ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 
 client = MongoClient(MONGO_URL)
 mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
-
-
 
 # 텔레톤 유저봇 및 캐시 초기화
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
@@ -83,7 +81,7 @@ async def send_custom_output(bot, chat_id, data, title=""):
     except Exception as e:
         logging.error(f"Output Error: {e}")
 
-# 엔진 3 스케줄러 루프
+# 엔진 3 스케줄러 루프 날짜 비교 포맷 정밀 교정 완료
 async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
     bot = application.bot
@@ -92,12 +90,13 @@ async def custom_scheduler_loop(application):
             now = datetime.now(KST)
             now_ts = now.timestamp()
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
-            now_str = now.strftime("%Y-%m-%d %H:%M")
             
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
-                if not (s['start_dt'] <= now_str <= s['end_dt']):
-                    if now_str > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
+                
+                # 디비 구조와 일치하도록 하이픈 없는 8자리 숫자로 날짜 비교 포맷 전면 수정
+                if not (s['start_dt'] <= now_date <= s['end_dt']):
+                    if now_date > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
                     continue
                 if not (s['slot_start'] <= now_time <= s['slot_end']): continue
                 
@@ -124,10 +123,11 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
     if not t_id: return await context.bot.send_message(chat_id, "⚠️ 설정 명령어로 방을 먼저 선택하세요")
     
     try:
-        if "/스케줄등록" in raw_html:
-            cleaned = raw_html.strip()
-            cleaned = re.sub(r'</?(pre|code)[^>]*>', '', cleaned)
-            
+        cleaned = raw_html.strip()
+        cleaned = re.sub(r'</?(pre|code)[^>]*>', '', cleaned)
+        cleaned_lower = cleaned.lower()
+        
+        if "/스케줄등록" in cleaned_lower:
             match = re.search(r'/스케줄등록\s*([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|(\d+)\s*(.*)', cleaned, re.DOTALL)
             if not match: raise ValueError("스케줄 등록 형식이 올바르지 않습니다 명확히 파이프 기호로 구분하여 입력하세요")
             
@@ -164,15 +164,23 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
                 "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content)}
             }
             col_sched.insert_one(data); await context.bot.send_message(chat_id, f"⏰ {name} 예약 완료")
-        elif "/personal" in raw_html:
-            m = re.search(r"/personal\s+(\S+)\s*(.*)", raw_html, re.IGNORECASE | re.DOTALL)
-            key, content = (m.group(1), m.group(2)) if m else (None, None)
-            if not key: return
+            
+        elif "/personal" in cleaned_lower:
+            m = re.search(r"/personal\s+(\S+)\s*(.*)", cleaned, re.IGNORECASE | re.DOTALL)
+            if not m: raise ValueError("퍼스널 등록 형식이 올바르지 않습니다")
+            
+            key = clean_tags(m.group(1))
+            content = m.group(2)
+            
             msg, btn = content.rsplit("---", 1) if "---" in content else (content, "")
             cmd_data = {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(msg.strip()), "buttons": re.sub('<[^<]+?>', '', btn).strip()}
-            if t_id == "common": col_main.update_one({"id": "bot_main_data"}, {"$set": {f"commands.{key}": cmd_data}}, upsert=True)
-            else: col_members.update_one({"chat_id": t_id}, {"$set": {f"local_commands.{key}": cmd_data}}, upsert=True)
+            
+            if t_id == "common": 
+                col_main.update_one({"id": "bot_main_data"}, {"$set": {f"commands.{key}": cmd_data}}, upsert=True)
+            else: 
+                col_members.update_one({"chat_id": t_id}, {"$set": {f"local_commands.{key}": cmd_data}}, upsert=True)
             await context.bot.send_message(chat_id, f"✅ {key} 저장 완료")
+            
     except Exception as e: 
         await context.bot.send_message(chat_id, f"❌ 에러 발생 {clean_tags(str(e))}")
     if m_id in media_group_cache: del media_group_cache[m_id]
@@ -182,7 +190,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
     
-    # 동기화 및 전체공지 명령어 복구 구역
     if await check_auth(update, context):
         if text == "/동기화":
             msg = await update.message.reply_text("🔄 DB 최신화 중")
@@ -201,7 +208,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # 실시간 국내 날씨 정보 인터페이스 10초 타임아웃 적용
     if text.startswith(('/날씨', '!날씨')):
         parts = text.split(None, 1)
         input_city = parts[1].strip() if len(parts) > 1 else "수원"
@@ -250,7 +256,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ 날씨 시스템 연동 장애 발생 {weather_err}")
         return
 
-    # 관리자 개인 DM 설정 모드
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
         if text.startswith(('/설정', '/리스트', '/삭제')):
             btns = [[InlineKeyboardButton("📁 공용 설정", callback_data="set_room:common")]]
@@ -258,17 +263,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
             return await update.message.reply_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
         
-        if update.message.photo or "/personal" in text or "/스케줄등록" in text:
+        raw_html = update.message.caption_html or update.message.text_html or ""
+        raw_lower = raw_html.lower()
+        if update.message.photo or "/personal" in raw_lower or "/스케줄등록" in raw_lower:
             m_id = update.message.media_group_id or f"s_{update.message.message_id}"
             if update.message.photo:
-                if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": update.message.caption_html or "", "task": None}
+                if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": raw_html, "task": None}
                 media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
                 if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
                 media_group_cache[m_id]["task"] = asyncio.create_task(save_logic_with_delay(chat_id, context, m_id))
             else: await save_logic_with_delay(chat_id, context, None, update.message)
             return
 
-    # 커맨드 실행
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         room = col_members.find_one({"chat_id": str(chat_id)})
