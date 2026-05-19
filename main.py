@@ -209,20 +209,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [스포츠센터 연동] 1번 벽돌깨기 제거 후 상단 레이아웃 커팅 스코어센터와 2번 레트로 지렁이 매칭 완료
+    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동 모듈 고정
     if text.startswith(('/game', '!game', '/게임', '!게임')):
         uname = urllib.parse.quote(update.effective_user.first_name)
-        url_live = f"https://dduri-bot.onrender.com/sports/live"
         url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
-        
-        keyboard = [
-            [InlineKeyboardButton(text="📊 1번 메뉴: 실시간 라이브 스코어센터", url=url_live)],
-            [InlineKeyboardButton(text="🐍 2번 메뉴: 레트로 지렁이게임", url=url_snake)]
-        ]
-        await update.message.reply_text("🕹 <b>뜌리 멀티 미니게임 센터</b>\n\n원하시는 서비스 메뉴를 아래에서 선택해 주세요!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        keyboard = [[InlineKeyboardButton(text="🐍 레트로 지렁이게임 시작", url=url_snake)]]
+        await update.message.reply_text("🕹 <b>뜌리 인앱 게임센터</b>\n\n아래 버튼을 누르면 모바일 가상 패드가 장착된 지렁이게임이 즉시 시작됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 지렁이 게임의 상위 스코어 독자 추적 유지
+    # [2번 메뉴] /스코어 입력 시 실시간 플래시스코어 라이브 센터 호출 모듈 신설
+    if text.startswith(('/score', '!score', '/스코어', '!스코어')):
+        url_live = f"https://dduri-bot.onrender.com/sports/live"
+        keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
+        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 모바일 화면 크기에 맞게 축소 보정된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+
+    # [랭킹 시스템] 지렁이 게임 점수 실시간 TOP 10 가시화
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
         snake_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
@@ -235,7 +237,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # [메뉴 랜덤 추천 엔진] 괄호 제거 규칙 준수 상태 유지
+    # [메뉴 랜덤 추천 엔진] 괄호 완전 배제
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
         import random
         
@@ -404,7 +406,7 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
 
-# [실시간 스포츠 스코어센터] 플래시스코어 상단 배너 및 로고 120px 정밀 마스킹 뷰 포트 통합 완료
+# [실시간 스포츠 스코어센터] 모바일 기기별 화면 크기 자동 감지 및 비율 축소 알고리즘 탑재
 @flask_app.route('/sports/live')
 def sports_live():
     return """<!DOCTYPE html>
@@ -414,24 +416,63 @@ def sports_live():
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>뜌리 실시간 스코어센터</title>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; }
-        .score-wrapper {
-            width: 100%;
-            height: calc(100% + 120px);
-            margin-top: -120px;
-            position: relative;
-        }
-        iframe {
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #151922; }
+        
+        /* 기기별 해상도를 추적하여 스케일을 조절하는 반응형 컨테이너 */
+        #container-wrapper {
             width: 100%;
             height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        iframe {
+            width: 100%;
+            height: calc(100% + 114px);
+            margin-top: -114px;
             border: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: top left;
         }
     </style>
 </head>
 <body>
-    <div class="score-wrapper">
-        <iframe src="https://www.flashscore.co.kr/"></iframe>
+    <div id="container-wrapper">
+        <iframe id="live-frame" src="https://www.flashscore.co.kr/"></iframe>
     </div>
+
+    <script>
+        function adjustLayout() {
+            const frame = document.getElementById('live-frame');
+            const wrapper = document.getElementById('container-wrapper');
+            
+            // 현재 사용자의 모바일 실제 화면 너비 측정
+            const windowWidth = window.innerWidth;
+            
+            // 플래시스코어의 기준 PC 해상도 너비
+            const baseWidth = 1024; 
+            
+            if (windowWidth < baseWidth) {
+                // 화면이 기준보다 작으면 그 비율만큼 전체 화면을 깔끔하게 축소(축사)시킴
+                const scale = windowWidth / baseWidth;
+                
+                frame.style.width = (baseWidth) + 'px';
+                frame.style.height = ((wrapper.clientHeight / scale) + 114) + 'px';
+                frame.style.transform = `scale(${scale})`;
+            } else {
+                // PC나 태블릿 등 넓은 화면에서는 기본 100% 출력
+                frame.style.width = '100%';
+                frame.style.height = 'calc(100% + 114px)';
+                frame.style.transform = 'none';
+            }
+        }
+
+        // 화면 로딩 시점 및 화면 회전 시 실시간 좌표 자동 재계산 엔진 가동
+        window.addEventListener('load', adjustLayout);
+        window.addEventListener('resize', adjustLayout);
+    </script>
 </body>
 </html>"""
 
