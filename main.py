@@ -209,7 +209,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동 모듈 고정
+    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 구동
     if text.startswith(('/game', '!game', '/게임', '!게임')):
         uname = urllib.parse.quote(update.effective_user.first_name)
         url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
@@ -217,14 +217,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🕹 <b>뜌리 인앱 게임센터</b>\n\n아래 버튼을 누르면 모바일 가상 패드가 장착된 지렁이게임이 즉시 시작됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [2번 메뉴] /스코어 입력 시 실시간 플래시스코어 라이브 센터 호출 모듈 신설
+    # [2번 메뉴] /스코어 입력 시 실시간 플래시스코어 고품질 원본 센터 호출
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
         keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
-        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 고품질 원본 그래픽이 적용된 실시간 스포츠 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 지렁이 게임 점수 실시간 TOP 10 가시화
+    # [랭킹 시스템] 지렁이 게임 점수 가시화
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
         snake_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
@@ -237,13 +237,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # [메뉴 랜덤 추천 엔진] 괄호 완전 배제
+    # [메뉴 랜덤 추천 엔진]
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
         import random
         
         lunch_menu = [
             "김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", 
-            "짜장면", "짬뽕", "볶음밥", "탕수욕", "김밥", 
+            "짜장면", "짬뽕", "볶음밥", "탕수육", "김밥", 
             "라면", "떡볶이", "순대", "순대국밥", "뼈해장국", 
             "설렁탕", "갈비탕", "육개장", "비빔밥", "칼국수", 
             "수제비", "물냉면", "비빔냉면", "우동", "초밥", 
@@ -406,7 +406,7 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
 
-# [실시간 스포츠 스코어센터] 모바일 전용 주소 강제 연동 및 상단 50px 반응형 정밀 컷 엔진 교정본
+# [실시간 스포츠 스코어센터] 고품질 PC 원본 강제 복구 및 해상도 가변 축소 배율 자동 매칭 엔진 선언
 @flask_app.route('/sports/live')
 def sports_live():
     return """<!DOCTYPE html>
@@ -417,23 +417,57 @@ def sports_live():
     <title>뜌리 실시간 스코어센터</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #151922; }
-        .score-wrapper {
-            width: 100%;
-            height: calc(100% + 50px);
-            margin-top: -50px;
-            position: relative;
-        }
-        iframe {
+        
+        #container-wrapper {
             width: 100%;
             height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        iframe {
+            width: 100%;
+            height: calc(100% + 120px);
+            margin-top: -120px;
             border: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: top left;
         }
     </style>
 </head>
 <body>
-    <div class="score-wrapper">
-        <iframe src="https://m.flashscore.co.kr/"></iframe>
+    <div id="container-wrapper">
+        <iframe id="live-frame" src="https://www.flashscore.co.kr/"></iframe>
     </div>
+
+    <script>
+        function adjustLayout() {
+            const frame = document.getElementById('live-frame');
+            const wrapper = document.getElementById('container-wrapper');
+            
+            const windowWidth = window.innerWidth;
+            const baseWidth = 1200; // 플래시스코어 고품질 PC 레이아웃의 완전 노출 기준 너비
+            
+            if (windowWidth < baseWidth) {
+                // 모바일 기기로 접속 시, PC 고품질 화면을 모바일 폰 해상도에 맞춰 자동으로 축소 변환
+                const scale = windowWidth / baseWidth;
+                
+                frame.style.width = (baseWidth) + 'px';
+                frame.style.height = ((wrapper.clientHeight / scale) + 120) + 'px';
+                frame.style.transform = `scale(${scale})`;
+            } else {
+                // PC나 넓은 모니터에서는 강제 축소 없이 원본 100% 비율 매칭
+                frame.style.width = '100%';
+                frame.style.height = 'calc(100% + 120px)';
+                frame.style.transform = 'none';
+            }
+        }
+
+        window.addEventListener('load', adjustLayout);
+        window.addEventListener('resize', adjustLayout);
+    </script>
 </body>
 </html>"""
 
