@@ -221,7 +221,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
         keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
-        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 모바일 화면 크기에 맞게 축소 보정된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
     # [랭킹 시스템] 지렁이 게임 점수 실시간 TOP 10 가시화
@@ -243,7 +243,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         lunch_menu = [
             "김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", 
-            "짜장면", "짬뽕", "볶음밥", "탕수육", "김밥", 
+            "짜장면", "짬뽕", "볶음밥", "탕수욕", "김밥", 
             "라면", "떡볶이", "순대", "순대국밥", "뼈해장국", 
             "설렁탕", "갈비탕", "육개장", "비빔밥", "칼국수", 
             "수제비", "물냉면", "비빔냉면", "우동", "초밥", 
@@ -406,7 +406,7 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
 
-# [실시간 스포츠 스코어센터] 모바일 기기별 화면 크기 자동 감지 및 비율 축소 알고리즘 탑재
+# [실시간 스포츠 스코어센터] 모바일 전용 주소 강제 연동 및 상단 50px 반응형 정밀 컷 엔진 교정본
 @flask_app.route('/sports/live')
 def sports_live():
     return """<!DOCTYPE html>
@@ -417,62 +417,23 @@ def sports_live():
     <title>뜌리 실시간 스코어센터</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #151922; }
-        
-        /* 기기별 해상도를 추적하여 스케일을 조절하는 반응형 컨테이너 */
-        #container-wrapper {
+        .score-wrapper {
             width: 100%;
-            height: 100%;
+            height: calc(100% + 50px);
+            margin-top: -50px;
             position: relative;
-            overflow: hidden;
         }
-        
         iframe {
             width: 100%;
-            height: calc(100% + 114px);
-            margin-top: -114px;
+            height: 100%;
             border: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-            transform-origin: top left;
         }
     </style>
 </head>
 <body>
-    <div id="container-wrapper">
-        <iframe id="live-frame" src="https://www.flashscore.co.kr/"></iframe>
+    <div class="score-wrapper">
+        <iframe src="https://m.flashscore.co.kr/"></iframe>
     </div>
-
-    <script>
-        function adjustLayout() {
-            const frame = document.getElementById('live-frame');
-            const wrapper = document.getElementById('container-wrapper');
-            
-            // 현재 사용자의 모바일 실제 화면 너비 측정
-            const windowWidth = window.innerWidth;
-            
-            // 플래시스코어의 기준 PC 해상도 너비
-            const baseWidth = 1024; 
-            
-            if (windowWidth < baseWidth) {
-                // 화면이 기준보다 작으면 그 비율만큼 전체 화면을 깔끔하게 축소(축사)시킴
-                const scale = windowWidth / baseWidth;
-                
-                frame.style.width = (baseWidth) + 'px';
-                frame.style.height = ((wrapper.clientHeight / scale) + 114) + 'px';
-                frame.style.transform = `scale(${scale})`;
-            } else {
-                // PC나 태블릿 등 넓은 화면에서는 기본 100% 출력
-                frame.style.width = '100%';
-                frame.style.height = 'calc(100% + 114px)';
-                frame.style.transform = 'none';
-            }
-        }
-
-        // 화면 로딩 시점 및 화면 회전 시 실시간 좌표 자동 재계산 엔진 가동
-        window.addEventListener('load', adjustLayout);
-        window.addEventListener('resize', adjustLayout);
-    </script>
 </body>
 </html>"""
 
