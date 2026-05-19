@@ -35,7 +35,7 @@ col_scores = mongodb['game_scores']
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
-# # 엔진 1 HTML 태그 밸런서
+# 엔진 1 HTML 태그 밸런서
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -209,40 +209,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [미니게임 연동] 멀티 선택 인터페이스 탑재
+    # [스포츠센터 연동] 1번 벽돌깨기 제거 후 상단 레이아웃 커팅 스코어센터와 2번 레트로 지렁이 매칭 완료
     if text.startswith(('/game', '!game', '/게임', '!게임')):
         uname = urllib.parse.quote(update.effective_user.first_name)
-        url_brick = f"https://dduri-bot.onrender.com/game/brick?chat_id={chat_id}&user_id={uid}&user_name={uname}"
+        url_live = f"https://dduri-bot.onrender.com/sports/live"
         url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
         
         keyboard = [
-            [InlineKeyboardButton(text="🎮 1번 게임: 클래식 벽돌깨기", url=url_brick)],
-            [InlineKeyboardButton(text="🐍 2번 게임: 레트로 지렁이게임", url=url_snake)]
+            [InlineKeyboardButton(text="📊 1번 메뉴: 실시간 라이브 스코어센터", url=url_live)],
+            [InlineKeyboardButton(text="🐍 2번 메뉴: 레트로 지렁이게임", url=url_snake)]
         ]
-        await update.message.reply_text("🕹 <b>뜌리 멀티 미니게임 센터</b>\n\n플레이하고 싶으신 고품질 그래픽 게임을 아래 메뉴에서 하나 선택해 주세요!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await update.message.reply_text("🕹 <b>뜌리 멀티 미니게임 센터</b>\n\n원하시는 서비스 메뉴를 아래에서 선택해 주세요!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 두 게임의 랭킹을 격리하여 상위 5명 출력
+    # [랭킹 시스템] 지렁이 게임의 상위 스코어 독자 추적 유지
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
-        brick_records = list(col_scores.find({"chat_id": str(chat_id), "game": "brick"}).sort("score", -1).limit(5))
-        snake_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(5))
+        snake_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
-        msg = "🏆 <b>우리 방 게임센터 실시간 TOP 5 순위표</b>\n\n"
-        
-        msg += "🧱 <b>[클래식 벽돌깨기 랭킹]</b>\n"
-        if not brick_records: msg += "→ 아직 등록된 점수가 없습니다.\n"
-        for idx, r in enumerate(brick_records, 1):
-            msg += f" {idx}위 : {r['user_name']} - {r['score']}점\n"
-            
-        msg += "\n🐍 <b>[레트로 지렁이 랭킹]</b>\n"
-        if not snake_records: msg += "→ 아직 등록된 점수가 없습니다.\n"
+        msg = "🏆 <b>우리 방 레트로 지렁이 실시간 TOP 10 랭킹</b>\n\n"
+        if not snake_records: 
+            msg += "→ 아직 등록된 점수가 없습니다. 첫 번째 주인공이 되어보세요!\n"
         for idx, r in enumerate(snake_records, 1):
             msg += f" {idx}위 : {r['user_name']} - {r['score']}점\n"
             
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # [메뉴 랜덤 추천 엔진] 괄호 없이 엄선된 추천 결과 도출
+    # [메뉴 랜덤 추천 엔진] 괄호 제거 규칙 준수 상태 유지
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
         import random
         
@@ -411,77 +404,34 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
 
-# [1번 게임] 클래식 벽돌깨기 라우트 (모바일 좌표 보정 장착)
-@flask_app.route('/game/brick')
-def brick_game():
+# [실시간 스포츠 스코어센터] 플래시스코어 상단 배너 및 로고 120px 정밀 마스킹 뷰 포트 통합 완료
+@flask_app.route('/sports/live')
+def sports_live():
     return """<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>뜌리 브릭 브레이커</title>
+    <title>뜌리 실시간 스코어센터</title>
     <style>
-        body { margin: 0; background: #111; color: #fff; text-align: center; font-family: sans-serif; overflow: hidden; }
-        canvas { background: #222; display: block; margin: 20px auto; border: 4px solid #444; max-width: 95vw; max-height: 70vh; }
-        #score { font-size: 24px; font-weight: bold; margin-top: 10px; color: #00ffcc; }
-        .btn { padding: 10px 20px; font-size: 16px; background: #00ffcc; border: none; border-radius: 5px; color: #111; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; }
+        .score-wrapper {
+            width: 100%;
+            height: calc(100% + 120px);
+            margin-top: -120px;
+            position: relative;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
     </style>
 </head>
 <body>
-    <div id="score">SCORE: 0</div>
-    <canvas id="gameCanvas" width="480" height="320"></canvas>
-    <button class="btn" onclick="document.location.reload()">다시 시작</button>
-    <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const chat_id = urlParams.get('chat_id') || '';
-        const user_id = urlParams.get('user_id') || '';
-        const user_name = urlParams.get('user_name') || '유저';
-
-        const canvas = document.getElementById("gameCanvas"); const ctx = canvas.getContext("2d"); let score = 0;
-        let ballRadius = 8; let x = canvas.width / 2; let y = canvas.height - 30; let dx = 3; let dy = -3;
-        let paddleHeight = 12; let paddleWidth = 75; let paddleX = (canvas.width - paddleWidth) / 2;
-        let rightPressed = false; let leftPressed = false;
-        let brickRowCount = 4; let brickColumnCount = 5; let brickWidth = 75; let brickHeight = 20; let brickPadding = 10; let brickOffsetTop = 30; let brickOffsetLeft = 30;
-        let bricks = []; for (let c = 0; c < brickColumnCount; c++) { bricks[c] = []; for (let r = 0; r < brickRowCount; r++) { bricks[c][r] = { x: 0, y: 0, status: 1 }; } }
-        
-        document.addEventListener("keydown", keyDownHandler, false); document.addEventListener("keyup", keyUpHandler, false);
-        canvas.addEventListener("mousemove", mouseMoveHandler, false);
-        canvas.addEventListener("touchstart", touchHandler, {passive: false}); canvas.addEventListener("touchmove", touchHandler, {passive: false});
-        
-        function keyDownHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = true; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = true; }
-        function keyUpHandler(e) { if (e.key === "Right" || e.key === "ArrowRight") rightPressed = false; else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = false; }
-        
-        function mouseMoveHandler(e) {
-            const rect = canvas.getBoundingClientRect();
-            const relativeX = (e.clientX - rect.left) * (canvas.width / rect.width);
-            if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; }
-        }
-        
-        function touchHandler(e) {
-            e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            if(e.touches.length > 0) {
-                const relativeX = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width);
-                if (relativeX > 0 && relativeX < canvas.width) { paddleX = relativeX - paddleWidth / 2; }
-            }
-        }
-        
-        function sendScore(finalScore) {
-            if(!chat_id || !user_id) return;
-            fetch('/game/submit_score', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chat_id, user_id: user_id, user_name: user_name, score: finalScore, game: 'brick' })
-            });
-        }
-
-        function collisionDetection() { for (let c = 0; c < brickColumnCount; c++) { for (let r = 0; r < brickRowCount; r++) { let b = bricks[c][r]; if (b.status === 1) { if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) { dy = -dy; b.status = 0; score += 10; document.getElementById("score").innerText = "SCORE: " + score; if (score === brickRowCount * brickColumnCount * 10) { sendScore(score); alert("축하합니다! 승리하셨습니다!"); document.location.reload(); } } } } } }
-        function drawBall() { ctx.beginPath(); ctx.arc(x, y, ballRadius, 0, Math.PI * 2); ctx.fillStyle = "#00ffcc"; ctx.fill(); ctx.closePath(); }
-        function drawPaddle() { ctx.beginPath(); ctx.rect(paddleX, canvas.height - paddleHeight, paddleWidth, paddleHeight); ctx.fillStyle = "#ffffff"; ctx.fill(); ctx.closePath(); }
-        function drawBricks() { for (let c = 0; c < brickColumnCount; c++) { for (let r = 0; r < brickRowCount; r++) { if (bricks[c][r].status === 1) { let brickX = c * (brickWidth + brickPadding) + brickOffsetLeft; let brickY = r * (brickHeight + brickPadding) + brickOffsetTop; bricks[c][r].x = brickX; bricks[c][r].y = brickY; ctx.beginPath(); ctx.rect(brickX, brickY, brickWidth, brickHeight); ctx.fillStyle = "hsl(" + (c * 45) + ", 100%, 60%)"; ctx.fill(); ctx.closePath(); } } } }
-        function draw() { ctx.clearRect(0, 0, canvas.width, canvas.height); drawBricks(); drawBall(); drawPaddle(); collisionDetection(); if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx; if (y + dy < ballRadius) { dy = -dy; } else if (y + dy > canvas.height - ballRadius) { if (x > paddleX && x < paddleX + paddleWidth) { dy = -dy; } else { sendScore(score); alert("게임 오버!"); document.location.reload(); return; } } if (rightPressed && paddleX < canvas.width - paddleWidth) paddleX += 5; else if (leftPressed && paddleX > 0) paddleX -= 5; x += dx; y += dy; requestAnimationFrame(draw); }
-        draw();
-    </script>
+    <div class="score-wrapper">
+        <iframe src="https://www.flashscore.co.kr/"></iframe>
+    </div>
 </body>
 </html>"""
 
@@ -615,7 +565,7 @@ def snake_game():
 </body>
 </html>"""
 
-# 점수 제출 엔드포인트 (게임 종류 구별)
+# 점수 제출 엔드포인트
 @flask_app.route('/game/submit_score', methods=['POST'])
 def submit_score():
     data = request.json
