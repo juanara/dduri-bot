@@ -35,7 +35,7 @@ col_scores = mongodb['game_scores']
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
-# 엔진 1 HTML 태그 밸런서
+# # 엔진 1 HTML 태그 밸런서
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -209,25 +209,79 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [미니게임 연동] 방 정보 및 유저 식별 데이터 연동 구역
+    # [미니게임 연동] 멀티 선택 인터페이스 탑재
     if text.startswith(('/game', '!game', '/게임', '!게임')):
         uname = urllib.parse.quote(update.effective_user.first_name)
-        game_url = f"https://dduri-bot.onrender.com/game/brick?chat_id={chat_id}&user_id={uid}&user_name={uname}"
-        keyboard = [[InlineKeyboardButton(text="🎮 벽돌깨기 미니앱 시작", url=game_url)]]
-        await update.message.reply_text("🕹 <b>뜌리 미니앱 게임센터</b>\n\n아래 버튼을 누르면 텔레그램 내부 팝업으로 고품질 그래픽 벽돌깨기 게임이 즉시 구동됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        url_brick = f"https://dduri-bot.onrender.com/game/brick?chat_id={chat_id}&user_id={uid}&user_name={uname}"
+        url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
+        
+        keyboard = [
+            [InlineKeyboardButton(text="🎮 1번 게임: 클래식 벽돌깨기", url=url_brick)],
+            [InlineKeyboardButton(text="🐍 2번 게임: 레트로 지렁이게임", url=url_snake)]
+        ]
+        await update.message.reply_text("🕹 <b>뜌리 멀티 미니게임 센터</b>\n\n플레이하고 싶으신 고품질 그래픽 게임을 아래 메뉴에서 하나 선택해 주세요!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 각 채팅방 고유의 실시간 스코어보드 출력 구역
+    # [랭킹 시스템] 두 게임의 랭킹을 격리하여 상위 5명 출력
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
-        records = list(col_scores.find({"chat_id": str(chat_id)}).sort("score", -1).limit(10))
-        if not records:
-            await update.message.reply_text("🏆 아직 등록된 게임 점수가 없습니다. 첫 번째 주인공이 되어보세요!")
-            return
+        brick_records = list(col_scores.find({"chat_id": str(chat_id), "game": "brick"}).sort("score", -1).limit(5))
+        snake_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(5))
         
-        msg = "🏆 <b>우리 방 벽돌깨기 실시간 TOP 10 랭킹</b>\n\n"
-        for idx, r in enumerate(records, 1):
-            msg += f"{idx}위 : {r['user_name']} - {r['score']}점\n"
+        msg = "🏆 <b>우리 방 게임센터 실시간 TOP 5 순위표</b>\n\n"
+        
+        msg += "🧱 <b>[클래식 벽돌깨기 랭킹]</b>\n"
+        if not brick_records: msg += "→ 아직 등록된 점수가 없습니다.\n"
+        for idx, r in enumerate(brick_records, 1):
+            msg += f" {idx}위 : {r['user_name']} - {r['score']}점\n"
+            
+        msg += "\n🐍 <b>[레트로 지렁이 랭킹]</b>\n"
+        if not snake_records: msg += "→ 아직 등록된 점수가 없습니다.\n"
+        for idx, r in enumerate(snake_records, 1):
+            msg += f" {idx}위 : {r['user_name']} - {r['score']}점\n"
+            
         await update.message.reply_text(msg, parse_mode="HTML")
+        return
+
+    # [메뉴 랜덤 추천 엔진] 괄호 없이 엄선된 추천 결과 도출
+    if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
+        import random
+        
+        lunch_menu = [
+            "김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", 
+            "짜장면", "짬뽕", "볶음밥", "탕수육", "김밥", 
+            "라면", "떡볶이", "순대", "순대국밥", "뼈해장국", 
+            "설렁탕", "갈비탕", "육개장", "비빔밥", "칼국수", 
+            "수제비", "물냉면", "비빔냉면", "우동", "초밥", 
+            "회덮밥", "파스타", "피자", "햄버거", "샌드위치"
+        ]
+        
+        dinner_menu = [
+            "삼겹살", "돼지갈비", "소고기구이", "닭갈비", "치킨", 
+            "족발", "보쌈", "곱창구이", "막창구이", "곱창전골", 
+            "아구찜", "해물찜", "찜닭", "닭볶음탕", "감자탕", 
+            "샤브샤브", "스키야키", "양꼬치", "마라탕", "마라샹궈", 
+            "모듬회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", 
+            "스테이크", "파스타", "연어회", "파전", "육회"
+        ]
+        
+        starbucks_menu = [
+            "카페 아메리카노", "카페 라떼", "스타벅스 돌체 라떼", "카라멜 마키아또", "화이트 초콜릿 모카", 
+            "카페 모카", "바닐라 플랫 화이트", "에스프레소", "에스프레소 마키아또", "에스프레소 콘 파나", 
+            "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", 
+            "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 블랙 티", 
+            "유자 민트 티", "민트 블렌드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
+            "딸기 딜라이트 요거트 블렌디드", "망고 바나나 블렌디드", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
+        ]
+        
+        if "점메추" in text:
+            selected = random.choice(lunch_menu)
+            await update.message.reply_text(f"☀️ 오늘 점심 메뉴는 {selected} 어떠세요?")
+        elif "저메추" in text:
+            selected = random.choice(dinner_menu)
+            await update.message.reply_text(f"🌙 오늘 저녁 메뉴는 {selected} 어떠세요?")
+        elif "커추" in text:
+            selected = random.choice(starbucks_menu)
+            await update.message.reply_text(f"☕️ 스타벅스 추천 메뉴는 {selected} 입니다.")
         return
 
     if text.startswith(('/날씨', '!날씨')):
@@ -357,6 +411,7 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
 
+# [1번 게임] 클래식 벽돌깨기 라우트 (모바일 좌표 보정 장착)
 @flask_app.route('/game/brick')
 def brick_game():
     return """<!DOCTYPE html>
@@ -416,7 +471,7 @@ def brick_game():
             fetch('/game/submit_score', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chat_id, user_id: user_id, user_name: user_name, score: finalScore })
+                body: JSON.stringify({ chat_id: chat_id, user_id: user_id, user_name: user_name, score: finalScore, game: 'brick' })
             });
         }
 
@@ -430,6 +485,137 @@ def brick_game():
 </body>
 </html>"""
 
+# [2번 게임] 레트로 지렁이게임 라우트 (모바일 가상 패드 포함)
+@flask_app.route('/game/snake')
+def snake_game():
+    return """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>뜌리 레트로 스네이크</title>
+    <style>
+        body { margin: 0; background: #111; color: #fff; text-align: center; font-family: sans-serif; overflow: hidden; }
+        canvas { background: #222; display: block; margin: 15px auto; border: 4px solid #444; max-width: 90vw; aspect-ratio: 1; }
+        #score { font-size: 24px; font-weight: bold; margin-top: 10px; color: #ffcc00; }
+        .pad-container { display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); gap: 8px; justify-content: center; margin-top: 10px; }
+        .pad-btn { background: #444; border: none; border-radius: 10px; color: #fff; font-size: 24px; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; }
+        .pad-btn:active { background: #ffcc00; color: #111; }
+        .hide { visibility: hidden; }
+    </style>
+</head>
+<body>
+    <div id="score">SCORE: 0</div>
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    
+    <div class="pad-container">
+        <div class="pad-btn hide"></div>
+        <div class="pad-btn" id="btn-up">▲</div>
+        <div class="pad-btn hide"></div>
+        <div class="pad-btn" id="btn-left">◀</div>
+        <div class="pad-btn hide"></div>
+        <div class="pad-btn" id="btn-right">▶</div>
+        <div class="pad-btn hide"></div>
+        <div class="pad-btn" id="btn-down">▼</div>
+        <div class="pad-btn hide"></div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const chat_id = urlParams.get('chat_id') || '';
+        const user_id = urlParams.get('user_id') || '';
+        const user_name = urlParams.get('user_name') || '유저';
+
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        
+        const grid = 20;
+        let score = 0;
+        let count = 0;
+        
+        let snake = { x: 160, y: 160, dx: grid, dy: 0, cells: [{x: 160, y: 160}, {x: 140, y: 160}], maxCells: 2 };
+        let apple = { x: 320, y: 320 };
+
+        function getRandomInt(min, max) { return Math.floor(Math.random() * (max - min)) + min; }
+
+        function sendScore(finalScore) {
+            if(!chat_id || !user_id) return;
+            fetch('/game/submit_score', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chat_id, user_id: user_id, user_name: user_name, score: finalScore, game: 'snake' })
+            });
+        }
+
+        function resetGame() {
+            sendScore(score);
+            score = 0;
+            document.getElementById("score").innerText = "SCORE: " + score;
+            snake.x = 160; snake.y = 160;
+            snake.cells = [{x: 160, y: 160}, {x: 140, y: 160}];
+            snake.maxCells = 2;
+            snake.dx = grid; snake.dy = 0;
+            apple.x = getRandomInt(0, 20) * grid; apple.y = getRandomInt(0, 20) * grid;
+        }
+
+        function loop() {
+            requestAnimationFrame(loop);
+            if (++count < 6) { return; }
+            count = 0;
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+
+            snake.x += snake.dx;
+            snake.y += snake.dy;
+
+            if (snake.x < 0 || snake.x >= canvas.width || snake.y < 0 || snake.y >= canvas.height) { resetGame(); }
+
+            snake.cells.unshift({x: snake.x, y: snake.y});
+            if (snake.cells.length > snake.maxCells) { snake.cells.pop(); }
+
+            ctx.fillStyle = '#ff4444';
+            ctx.fillRect(apple.x, apple.y, grid-1, grid-1);
+
+            ctx.fillStyle = '#ffcc00';
+            snake.cells.forEach(function(cell, index) {
+                ctx.fillRect(cell.x, cell.y, grid-1, grid-1);  
+                if (cell.x === apple.x && cell.y === apple.y) {
+                    snake.maxCells++;
+                    score += 10;
+                    document.getElementById("score").innerText = "SCORE: " + score;
+                    apple.x = getRandomInt(0, 20) * grid;
+                    apple.y = getRandomInt(0, 20) * grid;
+                }
+                for (let i = index + 1; i < snake.cells.length; i++) {
+                    if (cell.x === snake.cells[i].x && cell.y === snake.cells[i].y) { resetGame(); }
+                }
+            });
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.which === 37 && snake.dx === 0) { snake.dx = -grid; snake.dy = 0; }
+            else if (e.which === 38 && snake.dy === 0) { snake.dy = -grid; snake.dx = 0; }
+            else if (e.which === 39 && snake.dx === 0) { snake.dx = grid; snake.dy = 0; }
+            else if (e.which === 40 && snake.dy === 0) { snake.dy = grid; snake.dx = 0; }
+        });
+
+        document.getElementById('btn-up').addEventListener('touchstart', () => { if(snake.dy === 0) { snake.dy = -grid; snake.dx = 0; } });
+        document.getElementById('btn-down').addEventListener('touchstart', () => { if(snake.dy === 0) { snake.dy = grid; snake.dx = 0; } });
+        document.getElementById('btn-left').addEventListener('touchstart', () => { if(snake.dx === 0) { snake.dx = -grid; snake.dy = 0; } });
+        document.getElementById('btn-right').addEventListener('touchstart', () => { if(snake.dx === 0) { snake.dx = grid; snake.dy = 0; } });
+        
+        document.getElementById('btn-up').addEventListener('mousedown', () => { if(snake.dy === 0) { snake.dy = -grid; snake.dx = 0; } });
+        document.getElementById('btn-down').addEventListener('mousedown', () => { if(snake.dy === 0) { snake.dy = grid; snake.dx = 0; } });
+        document.getElementById('btn-left').addEventListener('mousedown', () => { if(snake.dx === 0) { snake.dx = -grid; snake.dy = 0; } });
+        document.getElementById('btn-right').addEventListener('mousedown', () => { if(snake.dx === 0) { snake.dx = grid; snake.dy = 0; } });
+
+        window.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>"""
+
+# 점수 제출 엔드포인트 (게임 종류 구별)
 @flask_app.route('/game/submit_score', methods=['POST'])
 def submit_score():
     data = request.json
@@ -438,9 +624,10 @@ def submit_score():
     user_id = str(data.get('user_id'))
     user_name = data.get('user_name', '유저')
     score = int(data.get('score', 0))
+    game_type = data.get('game', 'brick')
     
     col_scores.update_one(
-        {"chat_id": chat_id, "user_id": user_id},
+        {"chat_id": chat_id, "user_id": user_id, "game": game_type},
         {"$set": {"user_name": user_name}, "$max": {"score": score}},
         upsert=True
     )
