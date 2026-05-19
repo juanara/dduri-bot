@@ -209,7 +209,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 구동
+    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동
     if text.startswith(('/game', '!game', '/게임', '!게임')):
         uname = urllib.parse.quote(update.effective_user.first_name)
         url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
@@ -217,14 +217,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🕹 <b>뜌리 인앱 게임센터</b>\n\n아래 버튼을 누르면 모바일 가상 패드가 장착된 지렁이게임이 즉시 시작됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [2번 메뉴] /스코어 입력 시 실시간 플래시스코어 고품질 원본 센터 호출
+    # [2번 메뉴] /스코어 입력 시 실시간 플래시스코어 최적화 상황판 호출
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
         keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
-        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 고품질 원본 그래픽이 적용된 실시간 스포츠 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 지렁이 게임 점수 가시화
+    # [랭킹 시스템] 지렁이 게임 점수 실시간 TOP 10 가시화
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
         snake_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
@@ -237,13 +237,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # [메뉴 랜덤 추천 엔진]
+    # [메뉴 랜덤 추천 엔진] 괄호 완전 배제
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
         import random
         
         lunch_menu = [
             "김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", 
-            "짜장면", "짬뽕", "볶음밥", "탕수육", "김밥", 
+            "짜장면", "짬뽕", "볶음밥", "탕수욕", "김밥", 
             "라면", "떡볶이", "순대", "순대국밥", "뼈해장국", 
             "설렁탕", "갈비탕", "육개장", "비빔밥", "칼국수", 
             "수제비", "물냉면", "비빔냉면", "우동", "초밥", 
@@ -265,7 +265,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", 
             "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 블랙 티", 
             "유자 민트 티", "민트 블렌드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
-            "딸기 딜라이트 요거트 블렌디드", "망고 바나나 블렌디드", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
+            "딸기 딜라이트 요거트 BLENDED", "망고 바나나 블렌디드", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
         ]
         
         if "점메추" in text:
@@ -406,7 +406,7 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home(): return "OK", 200
 
-# [실시간 스포츠 스코어센터] 고품질 PC 원본 강제 복구 및 해상도 가변 축소 배율 자동 매칭 엔진 선언
+# [실시간 스포츠 스코어센터] 기기 환경(터치 유무 및 화면 폭) 자동 판별 동적 가변 마스킹 엔진 탑재 완료
 @flask_app.route('/sports/live')
 def sports_live():
     return """<!DOCTYPE html>
@@ -427,8 +427,6 @@ def sports_live():
         
         iframe {
             width: 100%;
-            height: calc(100% + 120px);
-            margin-top: -120px;
             border: none;
             position: absolute;
             top: 0;
@@ -446,22 +444,36 @@ def sports_live():
         function adjustLayout() {
             const frame = document.getElementById('live-frame');
             const wrapper = document.getElementById('container-wrapper');
-            
             const windowWidth = window.innerWidth;
-            const baseWidth = 1200; // 플래시스코어 고품질 PC 레이아웃의 완전 노출 기준 너비
             
-            if (windowWidth < baseWidth) {
-                // 모바일 기기로 접속 시, PC 고품질 화면을 모바일 폰 해상도에 맞춰 자동으로 축소 변환
-                const scale = windowWidth / baseWidth;
+            // 스마트폰 환경(터치 조작 인터페이스 유무) 분석 기동
+            const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+            
+            if (isMobileDevice) {
+                // 1. 스마트폰(모바일 반응형 모드) 전용 마스킹 엔진 가동
+                const mobileCut = 58; // 모바일 웹 최적화 상단 로고 컨테이너 높이
                 
-                frame.style.width = (baseWidth) + 'px';
-                frame.style.height = ((wrapper.clientHeight / scale) + 120) + 'px';
-                frame.style.transform = `scale(${scale})`;
-            } else {
-                // PC나 넓은 모니터에서는 강제 축소 없이 원본 100% 비율 매칭
-                frame.style.width = '100%';
-                frame.style.height = 'calc(100% + 120px)';
                 frame.style.transform = 'none';
+                frame.style.width = '100%';
+                frame.style.marginTop = `-${mobileCut}px`;
+                frame.style.height = `calc(100% + ${mobileCut}px)`;
+            } else {
+                // 2. 컴퓨터(PC 원본 고품질 모드) 전용 마스킹 및 자동 스케일링 엔진 가동
+                const pcCut = 120;
+                const baseWidth = 1200;
+                
+                if (windowWidth < baseWidth) {
+                    const scale = windowWidth / baseWidth;
+                    frame.style.width = baseWidth + 'px';
+                    frame.style.height = ((wrapper.clientHeight / scale) + pcCut) + 'px';
+                    frame.style.transform = `scale(${scale})`;
+                    frame.style.marginTop = `-${pcCut}px`;
+                } else {
+                    frame.style.width = '100%';
+                    frame.style.height = `calc(100% + ${pcCut}px)`;
+                    frame.style.transform = 'none';
+                    frame.style.marginTop = `-${pcCut}px`;
+                }
             }
         }
 
