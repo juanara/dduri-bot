@@ -2,7 +2,7 @@ import os, re, threading, asyncio, logging, html, requests, time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CommandHandler
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from telethon import TelegramClient
@@ -58,7 +58,7 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return member.status in ["administrator", "creator"]
     except: return False
 
-# [실시간 야구 중계차 라이브 파서] 차단 없는 글로벌 전용 야구 데이터 오픈 통합 엔진
+# [실시간 야구 중계차 라이브 파서] 3대 리그 ESPN API 데이터 구조 완벽 동적 연동
 def fetch_live_baseball_scores():
     try:
         headers = {
@@ -67,63 +67,58 @@ def fetch_live_baseball_scores():
         
         leagues_board = {"KBO": [], "NPB": [], "MLB": []}
         
-        # 해외 IP 차단 필터를 우회하여 전 세계 야구 3대 리그의 스코어 및 이닝 정보를 안정적으로 수집하는 통합 피드 가동
-        try:
-            res_data = requests.get("https://bdfed.pages.dev/baseball/live.json", headers=headers, timeout=5).json()
-            for item in res_data.get("games", []):
-                lg = item.get("league", "").upper()
-                if lg in leagues_board:
-                    away_name = item.get("away_team", "원정")
-                    home_name = item.get("home_team", "홈")
-                    state_txt = item.get("status_text", "시작전")
-                    
-                    if "FINAL" in state_txt.upper() or "종료" in state_txt:
+        # 3대 야구 리그별 안전 연동 피드 연산 기동 (데이터 파싱 충돌 원천 방어)
+        leagues_config = {
+            "MLB": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/mlb/scoreboard",
+            "KBO": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/kbo/scoreboard",
+            "NPB": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/npb/scoreboard"
+        }
+        
+        for league_key, url in leagues_config.items():
+            try:
+                res = requests.get(url, headers=headers, timeout=5).json()
+                for e in res.get("events", []):
+                    state_txt = e.get("status", {}).get("type", {}).get("detail", "시작전")
+                    if "Final" in state_txt or "종료" in state_txt: 
                         state_txt = "경기 종료"
-                        
-                    leagues_board[lg].append({
+                    
+                    competitors = e.get("competitions", [{}])[0].get("competitors", [])
+                    away_t = next((c for c in competitors if c.get("homeAway") == "away"), {})
+                    home_t = next((c for c in competitors if c.get("homeAway") == "home"), {})
+                    
+                    # 리그별로 다를 수 있는 팀 이름 key 데이터를 순차적으로 역추적하여 예외 처리 차단
+                    away_name = away_t.get("team", {}).get("shortDisplayName") or away_t.get("team", {}).get("displayName") or away_t.get("team", {}).get("name", "원정")
+                    home_name = home_t.get("team", {}).get("shortDisplayName") or home_t.get("team", {}).get("displayName") or home_t.get("team", {}).get("name", "홈")
+                    
+                    leagues_board[league_key].append({
                         "away": away_name,
                         "home": home_name,
-                        "away_score": str(item.get("away_score", 0)),
-                        "home_score": str(item.get("home_score", 0)),
+                        "away_score": away_t.get("score", "0"),
+                        "home_score": home_t.get("score", "0"),
                         "state": state_txt
                     })
-            # 데이터 수집 안정성 연산 종료
-        except Exception as api_err:
-            logging.error(f"Sports API 파싱 처리 장애: {api_err}")
+            except Exception as le_err:
+                logging.error(f"{league_key} 피드 파싱 연산 장애: {le_err}")
 
-        # 백업 보정선 설정 (API 점검 시간대 가시성 확보용)
-        if not leagues_board["KBO"]:
-            leagues_board["KBO"] = [
-                {"away": "키움", "home": "KT", "away_score": "3", "home_score": "5", "state": "3회 진행"},
-                {"away": "한화", "home": "SSG", "away_score": "7", "home_score": "2", "state": "3회 진행"},
-                {"away": "LG", "home": "KIA", "away_score": "3", "home_score": "0", "state": "6회 진행"},
-                {"away": "NC", "home": "롯데", "away_score": "1", "home_score": "2", "state": "5회 진행"}
-            ]
-        if not leagues_board["NPB"]:
-            leagues_board["NPB"] = [
-                {"away": "니혼햄", "home": "요미우리", "away_score": "3", "home_score": "5", "state": "경기 종료"}
-            ]
-        if not leagues_board["MLB"]:
-            leagues_board["MLB"] = [
-                {"away": "LA다저스", "home": "샌디에이고", "away_score": "5", "home_score": "2", "state": "경기 종료"}
-            ]
-
-        # 한눈에 알아보기 쉬운 하이엔드 고급 레이아웃 빌드
+        # 선배님이 지정하신 알아보기 쉽고 고급스러운 순정 텍스트 레이아웃 마스킹 출력
         output = "<b>⚾️ 실시간 야구 중계차 SCORES ⚾️</b>\n"
         output += "=========================\n\n"
         
         for league_key in ["KBO", "NPB", "MLB"]:
             output += f"■ <b>{league_key} LEAGUE</b>\n"
             output += "-------------------------\n"
-            for g in leagues_board[league_key]:
-                away = g["away"]
-                home = g["home"]
-                
-                # 2글자 팀 이름 자간 정렬 보정 시스템 작동
-                away_f = "  ".join(list(away)) if len(away) == 2 else away
-                home_f = "  ".join(list(home)) if len(home) == 2 else home
-                
-                output += f" {away_f}  {g['away_score']}  :  {g['home_score']}  {home_f}   |   <code>{g['state']}</code>\n"
+            if not leagues_board[league_key]:
+                output += " 현재 진행 중이거나 예정된 경기 일정이 없습니다.\n"
+            else:
+                for g in leagues_board[league_key]:
+                    away = g["away"]
+                    home = g["home"]
+                    
+                    # 2글자 팀 이름의 자간 균형 보정 시스템 작동
+                    away_f = "  ".join(list(away)) if len(away) == 2 else away
+                    home_f = "  ".join(list(home)) if len(home) == 2 else home
+                    
+                    output += f" {away_f}  {g['away_score']}  :  {g['home_score']}  {home_f}   |   <code>{g['state']}</code>\n"
             output += "\n"
             
         output += "========================="
@@ -131,12 +126,7 @@ def fetch_live_baseball_scores():
     except Exception as err:
         return f"❌ 라이브 중계차 파싱 엔진 치명적 에러: {err}"
 
-# 중계차 독점 독립 라우팅 핸들러 선언 (중복 출력 원천 원천 차단)
-async def baseball_relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    scores_board = fetch_live_baseball_scores()
-    await update.message.reply_text(scores_board, parse_mode="HTML")
-
-# 엔지니어링 출력 엔진
+# 엔진 2 출력 엔진
 async def send_custom_output(bot, chat_id, data, title=""):
     try:
         c_str = str(chat_id).strip()
@@ -287,7 +277,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동
+    # [/중계차] 호출 시 백엔드 100% 동적 디코딩 실시간 출력 가동
+    if text.startswith(('/중계차', '!중계차')):
+        scores_board = fetch_live_baseball_scores()
+        await update.message.reply_text(scores_board, parse_mode="HTML")
+        return
+
+    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동 (Willis 오타 완전 박멸 조치)
     if text.startswith(('/game', '!game', '/게임', '!게임')):
         uname = urllib.parse.quote(update.effective_user.first_name)
         url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
@@ -342,7 +338,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "카페 모카", "바닐라 플랫 화이트", "에스프레소", "에스프레소 마키아또", "에스프레소 콘 파나", 
             "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", 
             "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 블랙 티", 
-            "유자 민트 티", "민트 BLEND 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
+            "유자 민트 티", "민트 블렌드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
             "딸기 딜라이트 요거트 BLENDED", "망고 바나나 블렌디드", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
         ]
         
@@ -660,10 +656,6 @@ async def post_init(application):
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
-    
-    # 중계차 명령어 전용 CommandHandler 독립 등록 (중복 호출 원천 봉쇄)
-    app.add_handler(CommandHandler(['중계차', 'relay'], baseball_relay_command))
-    
     app.add_handler(MessageHandler(filters.ALL, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.run_polling()
