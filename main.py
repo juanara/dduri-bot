@@ -413,9 +413,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             win_reward = 2000
             gamble_type = "중박"
         elif text.startswith(('/소박', '!소박')):
-            cost = 200
-            win_chance = 0.50
-            win_reward = 400
+            cost = 500
+            win_chance = 0.40
+            win_reward = 1000
             gamble_type = "소박"
 
         if gamble_type:
