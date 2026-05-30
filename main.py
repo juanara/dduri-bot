@@ -227,7 +227,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
     uname = update.effective_user.first_name
     
-    # [최상단 배치] 관리자 전용 미참여자 포함 방 전체 실시간 명단 격리 조회 엔진
+    # [최상단 완벽 배치] 관리자 전용 미참여자 포함 방 전체 실시간 명단 격리 조회 엔진
     if text.startswith('/유저조회'):
         if uid not in ADMIN_LIST or update.effective_chat.type != "private":
             return
@@ -284,9 +284,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 각 방별 격리된 실시간 포인트 순위표 출력 (3초 자동 삭제 타이머 적용)
+    # [랭킹 시스템] 유저들의 요청에 따라 3초 삭제 엔진을 완전히 제거하고 단체방에 "영구 보존" 처리 완료
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
-        user_msg_id = update.message.message_id
         point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
         msg = "🏆 <b>우리 방 실시간 보유 포인트 TOP 10 순위표</b>\n\n"
@@ -295,9 +294,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for idx, r in enumerate(point_records, 1):
             msg += f" {idx}위 : {r['user_name']} <code>{r['user_id']}</code> - {r['score']}포인트\n"
             
-        res_msg = await update.message.reply_text(msg, parse_mode="HTML")
-        if update.effective_chat.type != "private":
-            asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
+        await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     # [메뉴 랜덤 추천 엔진]
@@ -365,7 +362,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
-    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (3초 자동 삭제 타이머 적용)
+    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (요청에 따라 성공 메시지 3초 삭제 라인을 완전히 주석 보정하여 영구 보존)
     if text.startswith(('/가족방최고', '!가족방최고')):
         user_msg_id = update.message.message_id
         r_chat_id = str(chat_id)
@@ -389,8 +386,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             upsert=True
         )
         res_msg = await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 무작위 보상 +{box_bonus} 포인트 지급 완료. 현재 방 포인트: {new_score}")
-        if update.effective_chat.type != "private":
-            asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
+        
+        # 3초 삭제 구역을 문법 에러 없이 완벽히 패스시켜 영구 박제합니다.
         return
 
     # [독립형 도박 엔진] 바카라 스타일 베팅 모듈 (3초 자동 삭제 타이머 장착)
