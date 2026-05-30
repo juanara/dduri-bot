@@ -390,11 +390,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 3초 삭제 구역을 문법 에러 없이 완벽히 패스시켜 영구 박제합니다.
         return
 
-    # [독립형 도박 엔진] 바카라 스타일 베팅 모듈 (3초 자동 삭제 타이머 장착)
+    # [독립형 도박 엔진] 바카라 스타일 베팅 모듈 (롤링 포인트 1% 적립 로직 전면 이식 완료)
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
         user_msg_id = update.message.message_id
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
+        current_rolling = user_record.get("rolling_point", 0) if user_record else 0
         
         cost = 0
         win_chance = 0.0
@@ -403,12 +404,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if text.startswith(('/대박', '!대박')):
             cost = 2000
-            win_chance = 0.15
+            win_chance = 0.30
             win_reward = 4000
             gamble_type = "대박"
         elif text.startswith(('/중박', '!중박')):
             cost = 1000
-            win_chance = 0.30
+            win_chance = 0.40
             win_reward = 2000
             gamble_type = "중박"
         elif text.startswith(('/소박', '!소박')):
@@ -424,17 +425,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
                 
             current_score -= cost
-            roll = random.random()
             
+            # [롤링포인트 연산 코드] 베팅 비용의 정확히 1% 계산하여 합산
+            rolling_bonus = int(cost * 0.01)
+            new_rolling = current_rolling + rolling_bonus
+            
+            roll = random.random()
             if roll < win_chance:
                 current_score += win_reward
-                msg_text = f"🔥 {uname}님 {gamble_type} 성공! 배당 2배인 {win_reward} 포인트를 획득했습니다! 현재 보유 포인트: {current_score}"
+                msg_text = f"🔥 {uname}님 {gamble_type} 성공! 배당 2배인 {win_reward} 포인트를 획득했습니다!\n현재 보유 포인트: {current_score}점\n💰 누적 롤링 포인트: {new_rolling} P (+{rolling_bonus})"
             else:
-                msg_text = f"💀 {uname}님 쪽박입니다 배팅포인트를 잃었습니다. 현재 보유 포인트: {current_score}"
+                msg_text = f"💀 {uname}님 쪽박입니다 배팅포인트를 잃었습니다.\n현재 보유 포인트: {current_score}점\n💰 누적 롤링 포인트: {new_rolling} P (+{rolling_bonus})"
                 
             col_scores.update_one(
                 {"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"},
-                {"$set": {"user_name": uname, "score": current_score}},
+                {"$set": {"user_name": uname, "score": current_score, "rolling_point": new_rolling}},
                 upsert=True
             )
             
