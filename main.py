@@ -227,6 +227,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
     uname = update.effective_user.first_name
     
+    # [최상단 배치] 관리자 전용 미참여자 포함 방 전체 실시간 명단 격리 조회 엔진
+    if text.startswith('/유저조회'):
+        if uid not in ADMIN_LIST or update.effective_chat.type != "private":
+            return
+            
+        sess = col_sessions.find_one({"admin_id": uid})
+        t_id = sess['target_chat_id'] if sess else None
+        if not t_id:
+            return await update.message.reply_text("⚠️ /설정 명령어로 먼저 관리할 방을 선택하세요.")
+
+        room = col_members.find_one({"chat_id": t_id})
+        if not room: return await update.message.reply_text("❌ 방 정보가 없습니다. 해당 방에서 /동기화를 먼저 해주세요.")
+        
+        users = room.get("users", {})
+        joined_users = {str(r['user_id']): r['user_name'] for r in col_scores.find({"chat_id": str(t_id)})}
+        
+        msg = f"👥 <b>방({room.get('room_name')}) 유저 참여 현황</b>\n\n"
+        for u_id, name in users.items():
+            status = "✅ 참여" if u_id in joined_users else "❌ 미참여"
+            msg += f"{name} (<code>{u_id}</code>) : {status}\n"
+        
+        await update.message.reply_text(msg, parse_mode="HTML")
+        return
+
     if await check_auth(update, context):
         if text == "/동기화":
             msg = await update.message.reply_text("🔄 DB 최신화 중")
@@ -260,9 +284,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 각 방별 격리된 실시간 포인트 순위표 출력
+    # [랭킹 시스템] 각 방별 격리된 실시간 포인트 순위표 출력 (3초 자동 삭제 타이머 적용)
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
-        user_msg_id = update.message.message_id # 유저 명령어 ID 가로채기
+        user_msg_id = update.message.message_id
         point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
         msg = "🏆 <b>우리 방 실시간 보유 포인트 TOP 10 순위표</b>\n\n"
@@ -272,8 +296,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f" {idx}위 : {r['user_name']} <code>{r['user_id']}</code> - {r['score']}포인트\n"
             
         res_msg = await update.message.reply_text(msg, parse_mode="HTML")
-        
-        # 개인방이 아닐 때만 3초 뒤 유저 명령어 + 봇 응답 폭파
         if update.effective_chat.type != "private":
             asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
@@ -303,7 +325,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "카페 모카", "바닐라 플랫 화이트", "에스프레소", "에스프레소 마키아또", "에스프레소 콘 파나", 
             "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", 
             "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 BLACK 티", 
-            "유자 민트 티", "민트 블렌드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
+            "유자 민트 티", "민트 BLENDED 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
             "딸기 딜라이트 요거트 BLENDED", "망고 바나나 BLENDED", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
         ]
         
@@ -318,9 +340,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"☕️ 스타벅스 추천 메뉴는 {selected} 입니다.")
         return
 
-# [수급 기능 1] 매일 출석체크 기능 반영 (3초 자동 삭제 타이머 적용)
+    # [수급 기능 1] 매일 출석체크 기능 반영 (3초 자동 삭제 타이머 적용)
     if text.startswith(('/출첵', '!출첵', '/출석체크', '!출석체크')):
-        user_msg_id = update.message.message_id # 유저 명령어 ID 가로채기
+        user_msg_id = update.message.message_id
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
         today_str = datetime.now(KST).strftime("%Y%m%d")
@@ -339,20 +361,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             upsert=True
         )
         res_msg = await update.message.reply_text(f"✅ {uname}님 출석 완료! 500 포인트가 지급되었습니다. 현재 보유 포인트: {new_score}")
-        
-        # 개인방이 아닐 때만 3초 뒤 유저 명령어 + 봇 응답 폭파
         if update.effective_chat.type != "private":
             asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
-# [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (3초 자동 삭제 타이머 적용)
+    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (3초 자동 삭제 타이머 적용)
     if text.startswith(('/가족방최고', '!가족방최고')):
-        user_msg_id = update.message.message_id # 유저 명령어 ID 가로채기
+        user_msg_id = update.message.message_id
         r_chat_id = str(chat_id)
         
         if not box_event_rooms.get(r_chat_id, False):
             err_msg = await update.message.reply_text("💨 현재 이 방에 활성화된 연합상자가 없습니다. 다음 출현을 기다려주세요!")
-            # 상자가 없는 상태에서 친 헛방 명령어도 3초 뒤 자동 청소
             if update.effective_chat.type != "private":
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
             return
@@ -370,17 +389,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             upsert=True
         )
         res_msg = await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 무작위 보상 +{box_bonus} 포인트 지급 완료. 현재 방 포인트: {new_score}")
-        
-        # [도배 방지] 획득 성공 시 유저 명령어 + 봇 축하 메시지 세트로 3초 뒤 자동 폭파
         if update.effective_chat.type != "private":
             asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
-    # [독립형 도박 엔진] 바카라 스타일 대박/중박/소박 베팅 모듈 (3초 자동 삭제 타이머 장착)
+    # [독립형 도박 엔진] 바카라 스타일 베팅 모듈 (3초 자동 삭제 타이머 장착)
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
-        # 단체방 도배 제어를 위해 유저가 입력한 명령어의 메시지 ID 확보
         user_msg_id = update.message.message_id
-        
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
         
@@ -408,7 +423,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if gamble_type:
             if current_score < cost:
                 err_msg = await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score}")
-                # 포인트 부족 경고창도 유저 명령어와 함께 3초 뒤 자동 폭파
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
                 return
                 
@@ -427,37 +441,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 upsert=True
             )
             
-            # 결과물 출력 후 봇 응답 메시지 ID 가로채기
             res_msg = await update.message.reply_text(msg_text)
-            
-            # [도배 방지 핵심] 유저가 친 명령어(user_msg_id) + 봇 결과 창(res_msg.message_id)을 세트로 3초 뒤에 자동 삭제
             if update.effective_chat.type != "private":
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
             return
-
-    # [관리자 전용] 미참여자 포함 방 전체 실시간 명단/아이디 격리 조회 엔진
-    if text.startswith('/유저조회'):
-        if uid not in ADMIN_LIST or update.effective_chat.type != "private":
-            return
-            
-        sess = col_sessions.find_one({"admin_id": uid})
-        t_id = sess['target_chat_id'] if sess else None
-        if not t_id:
-            return await update.message.reply_text("⚠️ /설정 명령어로 먼저 관리할 방을 선택하세요.")
-
-        room = col_members.find_one({"chat_id": t_id})
-        if not room: return await update.message.reply_text("❌ 방 정보가 없습니다. 해당 방에서 /동기화를 먼저 해주세요.")
-        
-        users = room.get("users", {})
-        joined_users = {str(r['user_id']): r['user_name'] for r in col_scores.find({"chat_id": str(t_id)})}
-        
-        msg = f"👥 <b>방({room.get('room_name')}) 유저 참여 현황</b>\n\n"
-        for u_id, name in users.items():
-            status = "✅ 참여" if u_id in joined_users else "❌ 미참여"
-            msg += f"{name} (<code>{u_id}</code>) : {status}\n"
-        
-        await update.message.reply_text(msg, parse_mode="HTML")
-        return
 
     # [개인 대화방 관리자 전용] 초간단 원터치 수식 연산 제어 엔진 (+유저ID 포인트 / -유저ID 포인트)
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
