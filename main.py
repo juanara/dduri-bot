@@ -62,6 +62,15 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return member.status in ["administrator", "creator"]
     except: return False
 
+# 지연 삭제 비동기 태스크 모듈 (채팅방 도배 제어용)
+async def delete_messages_delayed(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_ids: list, delay: float = 3.0):
+    await asyncio.sleep(delay)
+    for msg_id in message_ids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception as e:
+            logging.error(f"메시지 자동 삭제 실패 (ID: {msg_id}): {e}")
+
 # 엔진 2 출력 엔진
 async def send_custom_output(bot, chat_id, data, title=""):
     try:
@@ -280,7 +289,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "족발", "보쌈", "곱창구이", "막창구이", "곱창전골", 
             "아구찜", "해물찜", "찜닭", "닭볶음탕", "감자탕", 
             "샤브샤브", "스키야키", "양꼬치", "마라탕", "마라샹궈", 
-            "모듬회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", 
+            "모든회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", 
             "스테이크", "파스타", "연어회", "파전", "육회"
         ]
         
@@ -288,7 +297,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "카페 아메리카노", "카페 라떼", "스타벅스 돌체 라떼", "카라멜 마키아또", "화이트 초콜릿 모카", 
             "카페 모카", "바닐라 플랫 화이트", "에스프레소", "에스프레소 마키아또", "에스프레소 콘 파나", 
             "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", 
-            "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 블랙 티", 
+            "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 BLACK 티", 
             "유자 민트 티", "민트 블렌드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
             "딸기 딜라이트 요거트 BLENDED", "망고 바나나 BLENDED", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
         ]
@@ -344,8 +353,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 무작위 보상 +{box_bonus} 포인트 지급 완료. 현재 방 포인트: {new_score}")
         return
 
-    # [독립형 도박 엔진] 바카라 스타일 대박/중박/소박 베팅 모듈
+    # [독립형 도박 엔진] 바카라 스타일 대박/중박/소박 베팅 모듈 (3초 자동 삭제 타이머 장착)
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
+        # 단체방 도배 제어를 위해 유저가 입력한 명령어의 메시지 ID 확보
+        user_msg_id = update.message.message_id
+        
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
         
@@ -372,125 +384,121 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if gamble_type:
             if current_score < cost:
-                return await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score}")
+                err_msg = await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score}")
+                # 포인트 부족 경고창도 유저 명령어와 함께 3초 뒤 자동 폭파
+                asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
+                return
                 
             current_score -= cost
             roll = random.random()
             
             if roll < win_chance:
                 current_score += win_reward
-                msg = f"🔥 {uname}님 {gamble_type} 성공! 배당 2배인 {win_reward} 포인트를 획득했습니다! 현재 보유 포인트: {current_score}"
+                msg_text = f"🔥 {uname}님 {gamble_type} 성공! 배당 2배인 {win_reward} 포인트를 획득했습니다! 현재 보유 포인트: {current_score}"
             else:
-                msg = f"💀 {uname}님 쪽박입니다 배팅포인트를 잃었습니다. 현재 보유 포인트: {current_score}"
+                msg_text = f"💀 {uname}님 쪽박입니다 배팅포인트를 잃었습니다. 현재 보유 포인트: {current_score}"
                 
             col_scores.update_one(
                 {"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"},
                 {"$set": {"user_name": uname, "score": current_score}},
                 upsert=True
             )
-            await update.message.reply_text(msg)
+            
+            # 결과물 출력 후 봇 응답 메시지 ID 가로채기
+            res_msg = await update.message.reply_text(msg_text)
+            
+            # [도배 방지 핵심] 유저가 친 명령어(user_msg_id) + 봇 결과 창(res_msg.message_id)을 세트로 3초 뒤에 자동 삭제
+            if update.effective_chat.type != "private":
+                asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
             return
 
-    # [개인 대화방 관리자 전용] 유저 점수 실시간 차감 및 지급 엔지니어링 모듈
+    # [관리자 전용] 미참여자 포함 방 전체 실시간 명단/아이디 격리 조회 엔진
+    if text.startswith('/유저조회'):
+        if uid not in ADMIN_LIST or update.effective_chat.type != "private":
+            return
+            
+        sess = col_sessions.find_one({"admin_id": uid})
+        t_id = sess['target_chat_id'] if sess else None
+        if not t_id:
+            return await update.message.reply_text("⚠️ /설정 명령어로 먼저 관리할 방을 선택하세요.")
+
+        room = col_members.find_one({"chat_id": t_id})
+        if not room: return await update.message.reply_text("❌ 방 정보가 없습니다. 해당 방에서 /동기화를 먼저 해주세요.")
+        
+        users = room.get("users", {})
+        joined_users = {str(r['user_id']): r['user_name'] for r in col_scores.find({"chat_id": str(t_id)})}
+        
+        msg = f"👥 <b>방({room.get('room_name')}) 유저 참여 현황</b>\n\n"
+        for u_id, name in users.items():
+            status = "✅ 참여" if u_id in joined_users else "❌ 미참여"
+            msg += f"{name} (<code>{u_id}</code>) : {status}\n"
+        
+        await update.message.reply_text(msg, parse_mode="HTML")
+        return
+
+    # [개인 대화방 관리자 전용] 초간단 원터치 수식 연산 제어 엔진 (+유저ID 포인트 / -유저ID 포인트)
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
-        if text.startswith(('/점수차감', '/차감', '/포인트지급', '/지급', '+포인트')):
+        if text.startswith(('/점수차감', '/차감', '/포인트지급', '/지급', '+포인트', '+', '-')):
             parts = text.split()
-            if len(parts) < 3:
-                return await update.message.reply_text("⚠️ 형식\n차감: /차감 유저아이디 차감숫자\n지급: +포인트 유저아이디 지급숫자\n\n*주의: 관리자 세션방에서 활성화해 둔 방에만 데이터가 수정됩니다.")
-                
-            cmd = parts[0]
-            target_uid = parts[1].strip()
-            try:
-                val = int(parts[2].strip())
-            except:
-                return await update.message.reply_text("⚠️ 변경할 포인트는 반드시 정수 숫자로 입력하세요")
-                
+            
+            if (text.startswith('+') or text.startswith('-')) and not text.startswith('+포인트'):
+                match_short = re.match(r'^([+-])\s*(\d+)\s+(\d+)$', text)
+                if match_short:
+                    cmd_sign = match_short.group(1)
+                    target_uid = match_short.group(2).strip()
+                    try:
+                        val = int(match_short.group(3).strip())
+                    except:
+                        return await update.message.reply_text("⚠️ 변경할 포인트는 반드시 정수 숫자로 입력하세요")
+                else:
+                    return await update.message.reply_text("⚠️ 초간단 수식 형식\n지급: +유저아이디 포인트숫자\n차감: -유저아이디 포인트숫자\n\n예시: +8472713103 1000")
+            else:
+                if len(parts) < 3:
+                    return await update.message.reply_text("⚠️ 형식\n차감: /차감 유저아이디 차감숫자\n지급: +포인트 유저아이디 지급숫자")
+                cmd_sign = parts[0]
+                target_uid = parts[1].strip()
+                try:
+                    val = int(parts[2].strip())
+                except:
+                    return await update.message.reply_text("⚠️ 변경할 포인트는 반드시 정수 숫자로 입력하세요")
+
             sess = col_sessions.find_one({"admin_id": uid})
             t_id = sess['target_chat_id'] if sess else None
             if not t_id:
                 return await update.message.reply_text("⚠️ /설정 명령어로 포인트를 조작할 방을 먼저 활성화해 주세요.")
                 
-            target_record = col_scores.find_one({"chat_id": str(t_id), "user_id": target_uid, "game": "snake"})
-            if not target_record:
-                return await update.message.reply_text(f"❌ 활성화된 방({t_id})에 해당 유저아이디로 등록된 포인트 기록이 존재하지 않습니다.")
-                
-            old_score = target_record.get("score", 0)
+            room_info = col_members.find_one({"chat_id": str(t_id)})
+            room_users = room_info.get("users", {}) if room_info else {}
+            mapped_name = room_users.get(target_uid, "신규유저")
             
-            if cmd in ['/점수차감', '/차감']:
+            target_record = col_scores.find_one({"chat_id": str(t_id), "user_id": target_uid, "game": "snake"})
+            old_score = target_record.get("score", 0) if target_record else 0
+            act_user_name = target_record.get("user_name", mapped_name) if target_record else mapped_name
+            
+            if cmd_sign in ['/점수차감', '/차감', '-']:
                 new_score = old_score - val
                 act_name = "차감"
             else:
                 new_score = old_score + val
                 act_name = "지급"
-            
+                
             col_scores.update_one(
                 {"chat_id": str(t_id), "user_id": target_uid, "game": "snake"},
-                {"$set": {"score": new_score}}
+                {"$set": {"user_name": act_user_name, "score": new_score}},
+                upsert=True
             )
             
-            msg = f"📉 포인트 {act_name} 완료. 대상유저: {target_record.get('user_name')}님\n기존 포인트: {old_score}점 → 변경 포인트: {new_score}점"
+            msg = f"📉 포인트 {act_name} 완료. 대상유저: {act_user_name}님\n기존 포인트: {old_score}점 → 변경 포인트: {new_score}점"
             await update.message.reply_text(msg)
             return
 
-    # [실시간 날씨 엔진] 일본 주요 대도시 및 글로벌 매칭 모듈 전면 개편 가동
-    if text.startswith(('/날씨', '!날씨')):
-        parts = text.split(None, 1)
-        input_city = parts[1].strip() if len(parts) > 1 else "수원"
+    if text.startswith(('/설정', '/리스트', '/삭제')) and uid in ADMIN_LIST and update.effective_chat.type == "private":
+        btns = [[InlineKeyboardButton("📁 공용 설정", callback_data="set_room:common")]]
+        for r in list(col_members.find()):
+            if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
+        return await update.message.reply_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
         
-        ko_to_en = {
-            "서울": "Seoul", "부산": "Busan", "대구": "Daegu", "인천": "Incheon",
-            "광주": "Gwangju", "대전": "Daejeon", "울산": "Ulsan", "세종": "Sejong",
-            "수원": "Suwon", "성남": "Seongnam", "고양": "Goyang", "용인": "Yongin",
-            "부천": "Bucheon", "안산": "Ansan", "안양": "Anyang", "남양주": "Namyangju",
-            "화성": "Hwaseong", "평택": "Pyeongtaek", "의정부": "Uijeongbu", "시흥": "Siheung",
-            "파주": "Paju", "김포": "Gimpo", "광명": "Gwangmyeong", "군포": "Gunpo",
-            "오산": "Osan", "이천": "Icheon", "양주": "Yangju", "안성": "Anseong",
-            "구리": "Guri", "포천": "Pocheon", "의왕": "Uiwang", "하남": "Hanam",
-            "여주": "Yeoju", "동두천": "Dongducheon", "과천": "Gwacheon", "춘천": "Chuncheon",
-            "원주": "Wonju", "강릉": "Gangneung", "동해": "Donghae", "태백": "Taebaek",
-            "속초": "Sokcho", "삼척": "Samcheok", "청주": "Cheongju", "충주": "Chungju",
-            "제천": "Jecheon", "천안": "Cheonan", "공주": "Gongju", "보령": "Boryeong",
-            "아산": "Asan", "서산": "Seosan", "논산": "Nonsan", "계룡": "Gyeryong",
-            "당진": "Dangjin", "전주": "Jeonju", "군산": "Gunsan", "익산": "Iksan",
-            "정읍": "Jeongeup", "남원": "Namwon", "김제": "Gimje", "목포": "Mokpo",
-            "여수": "Yeosu", "순천": "Suncheon", "나주": "Naju", "광양": "Gwangyang",
-            "포항": "Pohang", "경주": "Gyeongju", "김천": "Gimcheon", "안동": "Andong",
-            "구미": "Gumi", "영주": "Yeongju", "영천": "Yeongcheon", "상주": "Sangju",
-            "문경": "Mungyeong", "경산": "Gyeongsan", "창원": "Changwon", "진주": "Jinju",
-            "통영": "Tongyeong", "사천": "Sacheon", "김해": "Gimhae", "밀양": "Miryang",
-            "거제": "Geoje", "양산": "Yangsan", "제주": "Jeju", "서귀포": "Seogwipo",
-            # 해외 주요 거점 도시 영문 사전 추가 완료
-            "후쿠오카": "Fukuoka", "도쿄": "Tokyo", "오사카": "Osaka", "삿포로": "Sapporo", 
-            "오키나와": "Okinawa", "나고야": "Nagoya", "교토": "Kyoto", "방콕": "Bangkok"
-        }
-        
-        search_city = input_city.replace("특별시", "").replace("광역시", "").replace("특별자치시", "").replace("시", "").strip()
-        api_city = ko_to_en.get(search_city, input_city)
-        
-        if not WEATHER_API_KEY:
-            await update.message.reply_text("⚠️ 날씨 API 키가 렌더 환경변수에 설정되지 않았습니다")
-            return
-        try:
-            res = requests.get(f"http://api.openweathermap.org/data/2.5/weather?q={api_city}&appid={WEATHER_API_KEY}&units=metric&lang=kr", timeout=10).json()
-            if str(res.get("cod")) == "200":
-                w_desc = res["weather"][0]["description"]
-                temp = res["main"]["temp"]
-                humidity = res["main"]["humidity"]
-                msg = f"☀️ {input_city} 실시간 날씨 정보\n\n상태 현재 {w_desc}\n기온 현재 {temp}도\n습도 현재 {humidity}%"
-                await update.message.reply_text(msg)
-            else:
-                await update.message.reply_text("❌ 도시 이름을 찾을 수 없습니다 정확한 도시 명칭으로 입력하세요")
-        except Exception as weather_err:
-            await update.message.reply_text(f"❌ 날씨 시스템 연동 장애 발생 {weather_err}")
-        return
-
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
-        if text.startswith(('/설정', '/리스트', '/삭제')):
-            btns = [[InlineKeyboardButton("📁 공용 설정", callback_data="set_room:common")]]
-            for r in list(col_members.find()):
-                if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
-            return await update.message.reply_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
-        
         raw_html = update.message.caption_html or update.message.text_html or ""
         raw_lower = raw_html.lower()
         if update.message.photo or "/personal" in raw_lower or "/스케줄등록" in raw_lower:
