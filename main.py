@@ -262,6 +262,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # [랭킹 시스템] 각 방별 격리된 실시간 포인트 순위표 출력
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
+        user_msg_id = update.message.message_id # 유저 명령어 ID 가로채기
         point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
         msg = "🏆 <b>우리 방 실시간 보유 포인트 TOP 10 순위표</b>\n\n"
@@ -270,7 +271,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for idx, r in enumerate(point_records, 1):
             msg += f" {idx}위 : {r['user_name']} <code>{r['user_id']}</code> - {r['score']}포인트\n"
             
-        await update.message.reply_text(msg, parse_mode="HTML")
+        res_msg = await update.message.reply_text(msg, parse_mode="HTML")
+        
+        # 개인방이 아닐 때만 3초 뒤 유저 명령어 + 봇 응답 폭파
+        if update.effective_chat.type != "private":
+            asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
     # [메뉴 랜덤 추천 엔진]
@@ -313,15 +318,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"☕️ 스타벅스 추천 메뉴는 {selected} 입니다.")
         return
 
-    # [수급 기능 1] 매일 출석체크 기능 반영 (500 포인트 방별 완전 격리 보관)
+# [수급 기능 1] 매일 출석체크 기능 반영 (3초 자동 삭제 타이머 적용)
     if text.startswith(('/출첵', '!출첵', '/출석체크', '!출석체크')):
+        user_msg_id = update.message.message_id # 유저 명령어 ID 가로채기
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
         today_str = datetime.now(KST).strftime("%Y%m%d")
         last_check = user_record.get("last_check_date", "") if user_record else ""
         
         if last_check == today_str:
-            return await update.message.reply_text(f"❌ {uname}님은 오늘 이미 출석체크를 완료하셨습니다.")
+            err_msg = await update.message.reply_text(f"❌ {uname}님은 오늘 이미 출석체크를 완료하셨습니다.")
+            if update.effective_chat.type != "private":
+                asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
+            return
             
         new_score = current_score + 500
         col_scores.update_one(
@@ -329,14 +338,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"$set": {"user_name": uname, "score": new_score, "last_check_date": today_str}},
             upsert=True
         )
-        await update.message.reply_text(f"✅ {uname}님 출석 완료! 500 포인트가 지급되었습니다. 현재 보유 포인트: {new_score}")
+        res_msg = await update.message.reply_text(f"✅ {uname}님 출석 완료! 500 포인트가 지급되었습니다. 현재 보유 포인트: {new_score}")
+        
+        # 개인방이 아닐 때만 3초 뒤 유저 명령어 + 봇 응답 폭파
+        if update.effective_chat.type != "private":
+            asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
-    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (방별 완전 독립 작동)
+# [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (3초 자동 삭제 타이머 적용)
     if text.startswith(('/가족방최고', '!가족방최고')):
+        user_msg_id = update.message.message_id # 유저 명령어 ID 가로채기
         r_chat_id = str(chat_id)
+        
         if not box_event_rooms.get(r_chat_id, False):
-            return await update.message.reply_text("💨 현재 이 방에 활성화된 연합상자가 없습니다. 다음 출현을 기다려주세요!")
+            err_msg = await update.message.reply_text("💨 현재 이 방에 활성화된 연합상자가 없습니다. 다음 출현을 기다려주세요!")
+            # 상자가 없는 상태에서 친 헛방 명령어도 3초 뒤 자동 청소
+            if update.effective_chat.type != "private":
+                asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
+            return
             
         box_event_rooms[r_chat_id] = False
         user_record = col_scores.find_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"})
@@ -350,7 +369,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"$set": {"user_name": uname, "score": new_score}},
             upsert=True
         )
-        await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 무작위 보상 +{box_bonus} 포인트 지급 완료. 현재 방 포인트: {new_score}")
+        res_msg = await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 무작위 보상 +{box_bonus} 포인트 지급 완료. 현재 방 포인트: {new_score}")
+        
+        # [도배 방지] 획득 성공 시 유저 명령어 + 봇 축하 메시지 세트로 3초 뒤 자동 폭파
+        if update.effective_chat.type != "private":
+            asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
     # [독립형 도박 엔진] 바카라 스타일 대박/중박/소박 베팅 모듈 (3초 자동 삭제 타이머 장착)
