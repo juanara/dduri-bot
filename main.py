@@ -59,86 +59,91 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return member.status in ["administrator", "creator"]
     except: return False
 
-# [실시간 야구 중계차 데이터 파싱 엔진] KBO, NPB, MLB 스포츠 다중 소스 수집기 모듈
+# [실시간 야구 중계차 데이터 파싱 엔진] KBO, NPB, MLB 스포츠 다중 소스 수집기 연동 완료
 def fetch_live_baseball_scores():
     try:
         today_date = datetime.now(KST).strftime("%Y%m%d")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*"
+        }
         
         # 1. KBO 실시간 데이터 파싱 구역
         kbo_lines = []
         try:
-            kbo_res = requests.get(f"https://sports.news.naver.com/kbaseball/schedule/index?date={today_date}", timeout=4).json()
+            kbo_res = requests.get(f"https://sports.news.naver.com/kbaseball/schedule/index?date={today_date}", headers=headers, timeout=4).json()
             games = kbo_res.get("todayScheduleLists", [])
             for g in games:
                 t1 = g.get("homeTeamName", "").strip()
                 t2 = g.get("awayTeamName", "").strip()
                 s1 = g.get("homeTeamScore", "")
                 s2 = g.get("awayTeamScore", "")
-                state = g.get("statusCode", "") # 종료 혹은 진행 중 상태 판별 코드
+                state = g.get("statusCode", "")
                 
                 if t1 and t2:
                     t1_f = "  ".join(list(t1)) if len(t1) == 2 else t1
                     t2_f = "  ".join(list(t2)) if len(t2) == 2 else t2
-                    if s1 == "" or s2 == "" or state == "BEFORE":
+                    if s1 is None or s2 is None or s1 == "" or s2 == "" or state == "BEFORE":
                         kbo_lines.append(f"{t2_f}  0  :  0  {t1_f}")
                     else:
                         kbo_lines.append(f"{t2_f}  {s2}  :  {s1}  {t1_f}")
-        except: pass
+        except Exception as e:
+            logging.error(f"KBO Parsing Error: {e}")
         
         if not kbo_lines:
-            kbo_lines = [
-                "삼  성  7  :  8  두  산",
-                "키  움  0  :  2  키  티",
-                "한  화  3  :  1  슬  랜",
-                "엘  지  2  :  0  기  아",
-                "엔  씨  0  :  1  롯  데"
-            ]
+            kbo_lines = ["현재 편성되거나 진행 중인 KBO 경기 일정이 없습니다."]
 
         # 2. NPB 실시간 데이터 파싱 구역
         npb_lines = []
         try:
-            npb_res = requests.get(f"https://sports.news.naver.com/wbaseball/schedule/index?date={today_date}&leagueId=NPB", timeout=4).json()
+            npb_res = requests.get(f"https://sports.news.naver.com/wbaseball/schedule/index?date={today_date}&leagueId=NPB", headers=headers, timeout=4).json()
             games = npb_res.get("todayScheduleLists", [])
             for g in games:
                 t1 = g.get("homeTeamName", "").strip()
                 t2 = g.get("awayTeamName", "").strip()
                 s1 = g.get("homeTeamScore", "")
                 s2 = g.get("awayTeamScore", "")
+                state = g.get("statusCode", "")
+                
                 if t1 and t2:
                     t1_f = "  ".join(list(t1)) if len(t1) == 2 else t1
                     t2_f = "  ".join(list(t2)) if len(t2) == 2 else t2
-                    if s1 == "" or s2 == "":
+                    if s1 is None or s2 is None or s1 == "" or s2 == "" or state == "BEFORE":
                         npb_lines.append(f"{t2_f}  0  :  0  {t1_f}")
                     else:
                         npb_lines.append(f"{t2_f}  {s2}  :  {s1}  {t1_f}")
-        except: pass
+        except Exception as e:
+            logging.error(f"NPB Parsing Error: {e}")
         
         if not npb_lines:
-            npb_lines = ["니  혼  3  :  5  요  미"]
+            npb_lines = ["현재 편성되거나 진행 중인 NPB 경기 일정이 없습니다."]
 
         # 3. MLB 실시간 데이터 파싱 구역
         mlb_lines = []
         try:
-            mlb_res = requests.get(f"https://sports.news.naver.com/wbaseball/schedule/index?date={today_date}&leagueId=MLB", timeout=4).json()
+            mlb_res = requests.get(f"https://sports.news.naver.com/wbaseball/schedule/index?date={today_date}&leagueId=MLB", headers=headers, timeout=4).json()
             games = mlb_res.get("todayScheduleLists", [])
             for g in games:
                 t1 = g.get("homeTeamName", "").strip()
                 t2 = g.get("awayTeamName", "").strip()
                 s1 = g.get("homeTeamScore", "")
                 s2 = g.get("awayTeamScore", "")
+                state = g.get("statusCode", "")
+                
                 if t1 and t2:
                     t1_f = "  ".join(list(t1)) if len(t1) == 2 else t1
                     t2_f = "  ".join(list(t2)) if len(t2) == 2 else t2
-                    if s1 == "" or s2 == "":
+                    if s1 is None or s2 is None or s1 == "" or s2 == "" or state == "BEFORE":
                         mlb_lines.append(f"{t2_f}  0  :  0  {t1_f}")
                     else:
                         mlb_lines.append(f"{t2_f}  {s2}  :  {s1}  {t1_f}")
-        except: pass
+        except Exception as e:
+            logging.error(f"MLB Parsing Error: {e}")
         
         if not mlb_lines:
-            mlb_lines = ["다  저  5  :  2  샌  디"]
+            mlb_lines = ["현재 편성되거나 진행 중인 MLB 경기 일정이 없습니다."]
 
-        # 선배님이 지정하신 완벽한 이모지 포맷 레이아웃 정밀 빌드
+        # 지정하신 완벽한 이모지 핏 레이아웃 데이터 주입 가공
         output = "   ⚾️ K B O ⚾️ \n\n" + "\n".join(kbo_lines) + "\n\n"
         output += "     ⚾️ N P B ⚾️ \n\n" + "\n".join(npb_lines) + "\n\n"
         output += "     ⚾️ M L B ⚾️ \n\n" + "\n".join(mlb_lines)
@@ -297,7 +302,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [/중계차] 호출 시 백엔드 비동기 갱신 및 실시간 보드 연동 파싱 출력
+    # [/중계차] 호출 시 백엔드 실시간 크롤링 엔진 가동 및 출력 완료
     if text.startswith(('/중계차', '!중계차')):
         scores_board = fetch_live_baseball_scores()
         await update.message.reply_text(scores_board, parse_mode="HTML")
@@ -336,7 +341,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import random
         
         lunch_menu = [
-            "김치찌개", "된장찌개", "부대찌개", "제욱볶음", "돈까스", 
+            "김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", 
             "짜장면", "짬뽕", "볶음밥", "탕수욕", "김밥", 
             "라면", "떡볶이", "순대", "순대국밥", "뼈해장국", 
             "설렁탕", "갈비탕", "육개장", "비빔밥", "칼국수", 
@@ -349,7 +354,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "족발", "보쌈", "곱창구이", "막창구이", "곱창전골", 
             "아구찜", "해물찜", "찜닭", "닭볶음탕", "감자탕", 
             "샤브샤브", "스키야키", "양꼬치", "마라탕", "마라샹궈", 
-            "모듬회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", 
+            "모든회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", 
             "스테이크", "파스타", "연어회", "파전", "육회"
         ]
         
