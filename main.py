@@ -278,7 +278,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # [/중계차] 호출 시 백엔드 100% 동적 디코딩 실시간 출력 가동
-    if text.startswith(('/중계차', '!중계차')):
+    if text.startswith(('', '!중계차')):
         scores_board = fetch_live_baseball_scores()
         await update.message.reply_text(scores_board, parse_mode="HTML")
         return
