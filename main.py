@@ -58,94 +58,73 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return member.status in ["administrator", "creator"]
     except: return False
 
-# [실시간 야구 중계차 데이터 파싱 엔진] 하이픈 날짜 변환 및 데이터 구조 정밀 분해 매칭
+# [실시간 야구 중계차 라이브 파서] 3대 리그 ESPN API 데이터 구조 완벽 동적 연동
 def fetch_live_baseball_scores():
     try:
-        # 네이버 API 필수 수용 규격인 하이픈 포맷 강제 지정
-        today_date = datetime.now(KST).strftime("%Y-%m-%d")
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
         
-        # 1. KBO 데이터 수집 및 글자 밸런싱
-        kbo_lines = []
-        try:
-            kbo_res = requests.get(f"https://sports.news.naver.com/kbaseball/schedule/index?date={today_date}", headers=headers, timeout=4).json()
-            games = kbo_res.get("todayScheduleLists", [])
-            for g in games:
-                t1 = g.get("homeTeamName", "").strip()
-                t2 = g.get("awayTeamName", "").strip()
-                s1 = g.get("homeTeamScore")
-                s2 = g.get("awayTeamScore")
-                state = g.get("statusCode", "")
-                
-                if t1 and t2:
-                    t1_f = "  ".join(list(t1)) if len(t1) == 2 else t1
-                    t2_f = "  ".join(list(t2)) if len(t2) == 2 else t2
-                    if s1 is None or s2 is None or s1 == "" or s2 == "" or state == "BEFORE":
-                        kbo_lines.append(f"{t2_f}  0  :  0  {t1_f}")
-                    else:
-                        kbo_lines.append(f"{t2_f}  {s2}  :  {s1}  {t1_f}")
-        except: pass
+        leagues_board = {"KBO": [], "NPB": [], "MLB": []}
         
-        if not kbo_lines:
-            kbo_lines = ["현재 편성되거나 진행 중인 KBO 경기 일정이 없습니다."]
-
-        # 2. NPB 데이터 수집 및 예외 제어
-        npb_lines = []
-        try:
-            npb_res = requests.get(f"https://sports.news.naver.com/wbaseball/schedule/index?date={today_date}&leagueId=NPB", headers=headers, timeout=4).json()
-            games = npb_res.get("todayScheduleLists", [])
-            for g in games:
-                t1 = g.get("homeTeamName", "").strip()
-                t2 = g.get("awayTeamName", "").strip()
-                s1 = g.get("homeTeamScore")
-                s2 = g.get("awayTeamScore")
-                state = g.get("statusCode", "")
-                
-                if t1 and t2:
-                    t1_f = "  ".join(list(t1)) if len(t1) == 2 else t1
-                    t2_f = "  ".join(list(t2)) if len(t2) == 2 else t2
-                    if s1 is None or s2 is None or s1 == "" or s2 == "" or state == "BEFORE":
-                        npb_lines.append(f"{t2_f}  0  :  0  {t1_f}")
-                    else:
-                        npb_lines.append(f"{t2_f}  {s2}  :  {s1}  {t1_f}")
-        except: pass
+        # 3대 야구 리그별 안전 연동 피드 연산 기동 (데이터 파싱 충돌 원천 방어)
+        leagues_config = {
+            "MLB": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/mlb/scoreboard",
+            "KBO": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/kbo/scoreboard",
+            "NPB": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/npb/scoreboard"
+        }
         
-        if not npb_lines:
-            npb_lines = ["현재 편성되거나 진행 중인 NPB 경기 일정이 없습니다."]
+        for league_key, url in leagues_config.items():
+            try:
+                res = requests.get(url, headers=headers, timeout=5).json()
+                for e in res.get("events", []):
+                    state_txt = e.get("status", {}).get("type", {}).get("detail", "시작전")
+                    if "Final" in state_txt or "종료" in state_txt: 
+                        state_txt = "경기 종료"
+                    
+                    competitors = e.get("competitions", [{}])[0].get("competitors", [])
+                    away_t = next((c for c in competitors if c.get("homeAway") == "away"), {})
+                    home_t = next((c for c in competitors if c.get("homeAway") == "home"), {})
+                    
+                    # 리그별로 다를 수 있는 팀 이름 key 데이터를 순차적으로 역추적하여 예외 처리 차단
+                    away_name = away_t.get("team", {}).get("shortDisplayName") or away_t.get("team", {}).get("displayName") or away_t.get("team", {}).get("name", "원정")
+                    home_name = home_t.get("team", {}).get("shortDisplayName") or home_t.get("team", {}).get("displayName") or home_t.get("team", {}).get("name", "홈")
+                    
+                    leagues_board[league_key].append({
+                        "away": away_name,
+                        "home": home_name,
+                        "away_score": away_t.get("score", "0"),
+                        "home_score": home_t.get("score", "0"),
+                        "state": state_txt
+                    })
+            except Exception as le_err:
+                logging.error(f"{league_key} 피드 파싱 연산 장애: {le_err}")
 
-        # 3. MLB 데이터 수집 및 출력 가공
-        mlb_lines = []
-        try:
-            mlb_res = requests.get(f"https://sports.news.naver.com/wbaseball/schedule/index?date={today_date}&leagueId=MLB", headers=headers, timeout=4).json()
-            games = mlb_res.get("todayScheduleLists", [])
-            for g in games:
-                t1 = g.get("homeTeamName", "").strip()
-                t2 = g.get("awayTeamName", "").strip()
-                s1 = g.get("homeTeamScore")
-                s2 = g.get("awayTeamScore")
-                state = g.get("statusCode", "")
-                
-                if t1 and t2:
-                    t1_f = "  ".join(list(t1)) if len(t1) == 2 else t1
-                    t2_f = "  ".join(list(t2)) if len(t2) == 2 else t2
-                    if s1 is None or s2 is None or s1 == "" or s2 == "" or state == "BEFORE":
-                        mlb_lines.append(f"{t2_f}  0  :  0  {t1_f}")
-                    else:
-                        mlb_lines.append(f"{t2_f}  {s2}  :  {s1}  {t1_f}")
-        except: pass
+        # 선배님이 지정하신 알아보기 쉽고 고급스러운 순정 텍스트 레이아웃 마스킹 출력
+        output = "<b>⚾️ 실시간 야구 중계차 SCORES ⚾️</b>\n"
+        output += "=========================\n\n"
         
-        if not mlb_lines:
-            mlb_lines = ["현재 편성되거나 진행 중인 MLB 경기 일정이 없습니다."]
-
-        output = "   ⚾️ K B O ⚾️ \n\n" + "\n".join(kbo_lines) + "\n\n"
-        output += "     ⚾️ N P B ⚾️ \n\n" + "\n".join(npb_lines) + "\n\n"
-        output += "     ⚾️ M L B ⚾️ \n\n" + "\n".join(mlb_lines)
+        for league_key in ["KBO", "NPB", "MLB"]:
+            output += f"■ <b>{league_key} LEAGUE</b>\n"
+            output += "-------------------------\n"
+            if not leagues_board[league_key]:
+                output += " 현재 진행 중이거나 예정된 경기 일정이 없습니다.\n"
+            else:
+                for g in leagues_board[league_key]:
+                    away = g["away"]
+                    home = g["home"]
+                    
+                    # 2글자 팀 이름의 자간 균형 보정 시스템 작동
+                    away_f = "  ".join(list(away)) if len(away) == 2 else away
+                    home_f = "  ".join(list(home)) if len(home) == 2 else home
+                    
+                    output += f" {away_f}  {g['away_score']}  :  {g['home_score']}  {home_f}   |   <code>{g['state']}</code>\n"
+            output += "\n"
+            
+        output += "========================="
         return output
     except Exception as err:
-        return f"❌ 라이브 중계차 파싱 장애 발생: {err}"
+        return f"❌ 라이브 중계차 파싱 엔진 치명적 에러: {err}"
 
 # 엔진 2 출력 엔진
 async def send_custom_output(bot, chat_id, data, title=""):
@@ -298,13 +277,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [/중계차] 데이터 갱신 및 실시간 출력
+    # [/중계차] 호출 시 백엔드 100% 동적 디코딩 실시간 출력 가동
     if text.startswith(('/중계차', '!중계차')):
         scores_board = fetch_live_baseball_scores()
         await update.message.reply_text(scores_board, parse_mode="HTML")
         return
 
-    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동
+    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동 (Willis 오타 완전 박멸 조치)
     if text.startswith(('/game', '!game', '/게임', '!게임')):
         uname = urllib.parse.quote(update.effective_user.first_name)
         url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
