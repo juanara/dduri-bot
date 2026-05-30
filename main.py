@@ -1,5 +1,6 @@
 import os, re, threading, asyncio, logging, html, requests, time
 import urllib.parse
+import random
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -35,6 +36,9 @@ col_scores = mongodb['game_scores']
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
+# 전역 상태 관리 (각 방별로 연합상자가 따로따로 열렸는지 체크하기 위한 딕셔너리 격리)
+box_event_rooms = {}
+
 # 엔진 1 HTML 태그 밸런서
 def balance_html(text):
     if not text: return ""
@@ -57,74 +61,6 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         member = await context.bot.get_chat_member(update.effective_chat.id, uid)
         return member.status in ["administrator", "creator"]
     except: return False
-
-# [실시간 야구 중계차 라이브 파서] 3대 리그 ESPN API 데이터 구조 완벽 동적 연동
-def fetch_live_baseball_scores():
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
-        
-        leagues_board = {"KBO": [], "NPB": [], "MLB": []}
-        
-        # 3대 야구 리그별 안전 연동 피드 연산 기동 (데이터 파싱 충돌 원천 방어)
-        leagues_config = {
-            "MLB": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/mlb/scoreboard",
-            "KBO": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/kbo/scoreboard",
-            "NPB": "https://site.api.espn.com/apis/site/v2/sports/baseball/leagues/npb/scoreboard"
-        }
-        
-        for league_key, url in leagues_config.items():
-            try:
-                res = requests.get(url, headers=headers, timeout=5).json()
-                for e in res.get("events", []):
-                    state_txt = e.get("status", {}).get("type", {}).get("detail", "시작전")
-                    if "Final" in state_txt or "종료" in state_txt: 
-                        state_txt = "경기 종료"
-                    
-                    competitors = e.get("competitions", [{}])[0].get("competitors", [])
-                    away_t = next((c for c in competitors if c.get("homeAway") == "away"), {})
-                    home_t = next((c for c in competitors if c.get("homeAway") == "home"), {})
-                    
-                    # 리그별로 다를 수 있는 팀 이름 key 데이터를 순차적으로 역추적하여 예외 처리 차단
-                    away_name = away_t.get("team", {}).get("shortDisplayName") or away_t.get("team", {}).get("displayName") or away_t.get("team", {}).get("name", "원정")
-                    home_name = home_t.get("team", {}).get("shortDisplayName") or home_t.get("team", {}).get("displayName") or home_t.get("team", {}).get("name", "홈")
-                    
-                    leagues_board[league_key].append({
-                        "away": away_name,
-                        "home": home_name,
-                        "away_score": away_t.get("score", "0"),
-                        "home_score": home_t.get("score", "0"),
-                        "state": state_txt
-                    })
-            except Exception as le_err:
-                logging.error(f"{league_key} 피드 파싱 연산 장애: {le_err}")
-
-        # 선배님이 지정하신 알아보기 쉽고 고급스러운 순정 텍스트 레이아웃 마스킹 출력
-        output = "<b>⚾️ 실시간 야구 중계차 SCORES ⚾️</b>\n"
-        output += "=========================\n\n"
-        
-        for league_key in ["KBO", "NPB", "MLB"]:
-            output += f"■ <b>{league_key} LEAGUE</b>\n"
-            output += "-------------------------\n"
-            if not leagues_board[league_key]:
-                output += " 현재 진행 중이거나 예정된 경기 일정이 없습니다.\n"
-            else:
-                for g in leagues_board[league_key]:
-                    away = g["away"]
-                    home = g["home"]
-                    
-                    # 2글자 팀 이름의 자간 균형 보정 시스템 작동
-                    away_f = "  ".join(list(away)) if len(away) == 2 else away
-                    home_f = "  ".join(list(home)) if len(home) == 2 else home
-                    
-                    output += f" {away_f}  {g['away_score']}  :  {g['home_score']}  {home_f}   |   <code>{g['state']}</code>\n"
-            output += "\n"
-            
-        output += "========================="
-        return output
-    except Exception as err:
-        return f"❌ 라이브 중계차 파싱 엔진 치명적 에러: {err}"
 
 # 엔진 2 출력 엔진
 async def send_custom_output(bot, chat_id, data, title=""):
@@ -153,14 +89,35 @@ async def send_custom_output(bot, chat_id, data, title=""):
 
 # 엔진 3 스케줄러 루프
 async def custom_scheduler_loop(application):
+    global box_event_rooms
     await asyncio.sleep(10)
     bot = application.bot
+    
+    last_box_check_hour = -1
+    
     while True:
         try:
             now = datetime.now(KST)
             now_ts = now.timestamp()
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
+            current_hour = now.hour
             
+            # 매 정각마다 35% 확률로 활성화된 모든 방에 각각 연합상자 이벤트 투하
+            if current_hour != last_box_check_hour:
+                last_box_check_hour = current_hour
+                if random.random() < 0.35:
+                    for r in list(col_members.find()):
+                        r_chat_id = str(r['chat_id'])
+                        if not box_event_rooms.get(r_chat_id, False):
+                            box_event_rooms[r_chat_id] = True
+                            try:
+                                await bot.send_message(
+                                    chat_id=int(r_chat_id),
+                                    text="📦 <b>연합상자가 출현했습니다!</b>\n/가족방최고를 먼저 쳐주신 1분에게 랜덤 포인트를 지급합니다!",
+                                    parse_mode="HTML"
+                                )
+                            except: pass
+
             for s in list(col_sched.find()):
                 sid = str(s['_id'])
                 
@@ -256,8 +213,10 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
 
 # 메인 핸들러
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global box_event_rooms
     if not update.message: return
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
+    uname = update.effective_user.first_name
     
     if await check_auth(update, context):
         if text == "/동기화":
@@ -277,16 +236,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # [/중계차] 호출 시 백엔드 100% 동적 디코딩 실시간 출력 가동
-    if text.startswith(('/중계차', '!중계차')):
-        scores_board = fetch_live_baseball_scores()
-        await update.message.reply_text(scores_board, parse_mode="HTML")
-        return
-
-    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동 (Willis 오타 완전 박멸 조치)
+    # [1번 메뉴] /게임 입력 시 레트로 지렁이게임 단독 구동
     if text.startswith(('/game', '!game', '/게임', '!게임')):
-        uname = urllib.parse.quote(update.effective_user.first_name)
-        url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={uname}"
+        u_encoded = urllib.parse.quote(uname)
+        url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={u_encoded}"
         keyboard = [[InlineKeyboardButton(text="🐍 레트로 지렁이게임 시작", url=url_snake)]]
         await update.message.reply_text("🕹 <b>뜌리 인앱 게임센터</b>\n\n아래 버튼을 누르면 모바일 가상 패드가 장착된 지렁이게임이 즉시 시작됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
@@ -298,23 +251,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # [랭킹 시스템] 지렁이 게임 점수 실시간 TOP 10 가시화
+    # [랭킹 시스템] 각 방별 격리된 실시간 포인트 순위표 출력
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
-        snake_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
+        point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         
-        msg = "🏆 <b>우리 방 레트로 지렁이 실시간 TOP 10 랭킹</b>\n\n"
-        if not snake_records: 
-            msg += "→ 아직 등록된 점수가 없습니다. 첫 번째 주인공이 되어보세요!\n"
-        for idx, r in enumerate(snake_records, 1):
-            msg += f" {idx}위 : {r['user_name']} - {r['score']}점\n"
+        msg = "🏆 <b>우리 방 실시간 보유 포인트 TOP 10 순위표</b>\n\n"
+        if not point_records: 
+            msg += "→ 아직 등록된 포인트 기록이 없습니다.\n"
+        for idx, r in enumerate(point_records, 1):
+            msg += f" {idx}위 : {r['user_name']} <code>{r['user_id']}</code> - {r['score']}포인트\n"
             
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # [메뉴 랜덤 추천 엔진] 괄호 완전 배제
+    # [메뉴 랜덤 추천 엔진]
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
-        import random
-        
         lunch_menu = [
             "김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", 
             "짜장면", "짬뽕", "볶음밥", "탕수욕", "김밥", 
@@ -329,7 +280,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "족발", "보쌈", "곱창구이", "막창구이", "곱창전골", 
             "아구찜", "해물찜", "찜닭", "닭볶음탕", "감자탕", 
             "샤브샤브", "스키야키", "양꼬치", "마라탕", "마라샹궈", 
-            "모든회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", 
+            "모듬회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", 
             "스테이크", "파스타", "연어회", "파전", "육회"
         ]
         
@@ -339,7 +290,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", 
             "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 블랙 티", 
             "유자 민트 티", "민트 블렌드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", 
-            "딸기 딜라이트 요거트 BLENDED", "망고 바나나 블렌디드", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
+            "딸기 딜라이트 요거트 BLENDED", "망고 바나나 BLENDED", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"
         ]
         
         if "점메추" in text:
@@ -353,6 +304,135 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"☕️ 스타벅스 추천 메뉴는 {selected} 입니다.")
         return
 
+    # [수급 기능 1] 매일 출석체크 기능 반영 (500 포인트 방별 완전 격리 보관)
+    if text.startswith(('/출첵', '!출첵', '/출석체크', '!출석체크')):
+        user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        current_score = user_record["score"] if user_record else 0
+        today_str = datetime.now(KST).strftime("%Y%m%d")
+        last_check = user_record.get("last_check_date", "") if user_record else ""
+        
+        if last_check == today_str:
+            return await update.message.reply_text(f"❌ {uname}님은 오늘 이미 출석체크를 완료하셨습니다.")
+            
+        new_score = current_score + 500
+        col_scores.update_one(
+            {"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"},
+            {"$set": {"user_name": uname, "score": new_score, "last_check_date": today_str}},
+            upsert=True
+        )
+        await update.message.reply_text(f"✅ {uname}님 출석 완료! 500 포인트가 지급되었습니다. 현재 보유 포인트: {new_score}")
+        return
+
+    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (방별 완전 독립 작동)
+    if text.startswith(('/가족방최고', '!가족방최고')):
+        r_chat_id = str(chat_id)
+        if not box_event_rooms.get(r_chat_id, False):
+            return await update.message.reply_text("💨 현재 이 방에 활성화된 연합상자가 없습니다. 다음 출현을 기다려주세요!")
+            
+        box_event_rooms[r_chat_id] = False
+        user_record = col_scores.find_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"})
+        current_score = user_record["score"] if user_record else 0
+        
+        box_bonus = random.randint(300, 2000)
+        new_score = current_score + box_bonus
+        
+        col_scores.update_one(
+            {"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"},
+            {"$set": {"user_name": uname, "score": new_score}},
+            upsert=True
+        )
+        await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 무작위 보상 +{box_bonus} 포인트 지급 완료. 현재 방 포인트: {new_score}")
+        return
+
+    # [독립형 도박 엔진] 바카라 스타일 대박/중박/소박 베팅 모듈
+    if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
+        user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        current_score = user_record["score"] if user_record else 0
+        
+        cost = 0
+        win_chance = 0.0
+        win_reward = 0
+        gamble_type = ""
+        
+        if text.startswith(('/대박', '!대박')):
+            cost = 2000
+            win_chance = 0.15
+            win_reward = 4000
+            gamble_type = "대박"
+        elif text.startswith(('/중박', '!중박')):
+            cost = 1000
+            win_chance = 0.30
+            win_reward = 2000
+            gamble_type = "중박"
+        elif text.startswith(('/소박', '!소박')):
+            cost = 200
+            win_chance = 0.50
+            win_reward = 400
+            gamble_type = "소박"
+
+        if gamble_type:
+            if current_score < cost:
+                return await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score}")
+                
+            current_score -= cost
+            roll = random.random()
+            
+            if roll < win_chance:
+                current_score += win_reward
+                msg = f"🔥 {uname}님 {gamble_type} 성공! 배당 2배인 {win_reward} 포인트를 획득했습니다! 현재 보유 포인트: {current_score}"
+            else:
+                msg = f"💀 {uname}님 쪽박입니다 배팅포인트를 잃었습니다. 현재 보유 포인트: {current_score}"
+                
+            col_scores.update_one(
+                {"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"},
+                {"$set": {"user_name": uname, "score": current_score}},
+                upsert=True
+            )
+            await update.message.reply_text(msg)
+            return
+
+    # [개인 대화방 관리자 전용] 유저 점수 실시간 차감 및 지급 엔지니어링 모듈
+    if uid in ADMIN_LIST and update.effective_chat.type == "private":
+        if text.startswith(('/점수차감', '/차감', '/포인트지급', '/지급', '+포인트')):
+            parts = text.split()
+            if len(parts) < 3:
+                return await update.message.reply_text("⚠️ 형식\n차감: /차감 유저아이디 차감숫자\n지급: +포인트 유저아이디 지급숫자\n\n*주의: 관리자 세션방에서 활성화해 둔 방에만 데이터가 수정됩니다.")
+                
+            cmd = parts[0]
+            target_uid = parts[1].strip()
+            try:
+                val = int(parts[2].strip())
+            except:
+                return await update.message.reply_text("⚠️ 변경할 포인트는 반드시 정수 숫자로 입력하세요")
+                
+            sess = col_sessions.find_one({"admin_id": uid})
+            t_id = sess['target_chat_id'] if sess else None
+            if not t_id:
+                return await update.message.reply_text("⚠️ /설정 명령어로 포인트를 조작할 방을 먼저 활성화해 주세요.")
+                
+            target_record = col_scores.find_one({"chat_id": str(t_id), "user_id": target_uid, "game": "snake"})
+            if not target_record:
+                return await update.message.reply_text(f"❌ 활성화된 방({t_id})에 해당 유저아이디로 등록된 포인트 기록이 존재하지 않습니다.")
+                
+            old_score = target_record.get("score", 0)
+            
+            if cmd in ['/점수차감', '/차감']:
+                new_score = old_score - val
+                act_name = "차감"
+            else:
+                new_score = old_score + val
+                act_name = "지급"
+            
+            col_scores.update_one(
+                {"chat_id": str(t_id), "user_id": target_uid, "game": "snake"},
+                {"$set": {"score": new_score}}
+            )
+            
+            msg = f"📉 포인트 {act_name} 완료. 대상유저: {target_record.get('user_name')}님\n기존 포인트: {old_score}점 → 변경 포인트: {new_score}점"
+            await update.message.reply_text(msg)
+            return
+
+    # [실시간 날씨 엔진] 일본 주요 대도시 및 글로벌 매칭 모듈 전면 개편 가동
     if text.startswith(('/날씨', '!날씨')):
         parts = text.split(None, 1)
         input_city = parts[1].strip() if len(parts) > 1 else "수원"
@@ -378,7 +458,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "구미": "Gumi", "영주": "Yeongju", "영천": "Yeongcheon", "상주": "Sangju",
             "문경": "Mungyeong", "경산": "Gyeongsan", "창원": "Changwon", "진주": "Jinju",
             "통영": "Tongyeong", "사천": "Sacheon", "김해": "Gimhae", "밀양": "Miryang",
-            "거제": "Geoje", "양산": "Yangsan", "제주": "Jeju", "서귀포": "Seogwipo"
+            "거제": "Geoje", "양산": "Yangsan", "제주": "Jeju", "서귀포": "Seogwipo",
+            # 해외 주요 거점 도시 영문 사전 추가 완료
+            "후쿠오카": "Fukuoka", "도쿄": "Tokyo", "오사카": "Osaka", "삿포로": "Sapporo", 
+            "오키나와": "Okinawa", "나고야": "Nagoya", "교토": "Kyoto", "방콕": "Bangkok"
         }
         
         search_city = input_city.replace("특별시", "").replace("광역시", "").replace("특별자치시", "").replace("시", "").strip()
@@ -396,7 +479,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg = f"☀️ {input_city} 실시간 날씨 정보\n\n상태 현재 {w_desc}\n기온 현재 {temp}도\n습도 현재 {humidity}%"
                 await update.message.reply_text(msg)
             else:
-                await update.message.reply_text("❌ 도시 이름을 찾을 수 없습니다 정확한 시 구 단위로 입력하세요")
+                await update.message.reply_text("❌ 도시 이름을 찾을 수 없습니다 정확한 도시 명칭으로 입력하세요")
         except Exception as weather_err:
             await update.message.reply_text(f"❌ 날씨 시스템 연동 장애 발생 {weather_err}")
         return
