@@ -31,6 +31,34 @@ client = MongoClient(MONGO_URL)
 mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
 col_scores = mongodb['game_scores']
+STADIUMS = {
+    "KBO (한국)": {
+        "잠실 (LG/두산)": {"lat": 37.5122, "lon": 127.0719},
+        "고척 (키움)": {"lat": 37.4982, "lon": 126.8671},
+        "문학 (SSG)": {"lat": 37.4371, "lon": 126.6933},
+        "수원 (KT)": {"lat": 37.2997, "lon": 127.0101},
+        "대전 (한화)": {"lat": 36.3172, "lon": 127.4292},
+        "대구 (삼성)": {"lat": 35.8412, "lon": 128.6815},
+        "광주 (KIA)": {"lat": 35.1683, "lon": 126.8891},
+        "사직 (롯데)": {"lat": 35.1940, "lon": 129.0614},
+        "창원 (NC)": {"lat": 35.2224, "lon": 128.5812},
+        "울산 (문수)": {"lat": 35.5312, "lon": 129.2594}
+    },
+    "NPB (일본)": {
+        "도쿄돔 (요미우리)": {"lat": 35.7056, "lon": 139.7519},
+        "진구 (야쿠르트)": {"lat": 35.6744, "lon": 139.7170},
+        "요코하마 (디엔에이)": {"lat": 35.4434, "lon": 139.6400},
+        "고시엔 (한신)": {"lat": 34.7212, "lon": 135.3616},
+        "교세라돔 (오릭스)": {"lat": 34.6694, "lon": 135.4761},
+        "반테린돔 (주니치)": {"lat": 35.1859, "lon": 136.9475},
+        "마쓰다 (히로시마)": {"lat": 34.3918, "lon": 132.4847},
+        "에스콘필드 (니혼햄)": {"lat": 42.9902, "lon": 141.5540},
+        "라쿠텐모바일 (라쿠텐)": {"lat": 38.2565, "lon": 140.9025},
+        "벨루나돔 (세이부)": {"lat": 35.7686, "lon": 139.4205},
+        "조조마린 (치바롯데)": {"lat": 35.6452, "lon": 140.0312},
+        "페이페이돔 (소프트뱅크)": {"lat": 33.5954, "lon": 130.3622}
+    }
+}
 
 # 텔레톤 유저봇 및 캐시 초기화
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
@@ -447,7 +475,60 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if update.effective_chat.type != "private":
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
             return
-
+if text.startswith(('/날씨', '!날씨')):
+        if not WEATHER_API_KEY:
+            return await update.message.reply_text("⚠️ 날씨 API 키가 설정되지 않았습니다.")
+        
+        status_msg = await update.message.reply_text("🛰 <b>한·일 전 구장 예보 데이터 취합 중...</b>", parse_mode="HTML")
+        w_ko = {"clear": "☀️맑음", "clouds": "☁️흐림", "rain": "🌧비", "drizzle": "🌦이슬비", "thunderstorm": "⛈폭우", "snow": "❄️눈", "mist": "🌫안개", "smoke": "🌫연기", "haze": "🌫박무"}
+        
+        msg = f"⚾️ <b>한·일 프로야구장 시간별 기상 요약 브리핑</b>\n"
+        msg += f"🗓 기준일: {datetime.now(KST).strftime('%m월 %d일')}\n"
+        msg += f"⏱ 분석 타임라인: 오후 13:00 ~ 저녁 20:00\n\n"
+        
+        target_hours = [13, 16, 19, 20]
+        
+        for league, list_stadiums in STADIUMS.items():
+            msg += f"■ <b>{league}</b>\n"
+            for s_name, coord in list_stadiums.items():
+                try:
+                    url = f"http://api.openweathermap.org/data/2.5/forecast?lat={coord['lat']}&lon={coord['lon']}&appid={WEATHER_API_KEY}&units=metric"
+                    res = requests.get(url, timeout=8).json()
+                    if str(res.get("cod")) != "200":
+                        msg += f"• {s_name}: 데이터 유실\n"
+                        continue
+                    timeline_forecasts = []
+                    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+                    dome_tag = " [돔]" if "돔" in s_name else ""
+                    for item in res.get("list", []):
+                        dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
+                        if dt_kst.strftime("%Y-%m-%d") == today_str and dt_kst.hour in target_hours:
+                            main_sky = item['weather'][0]['main'].lower()
+                            sky_ko = w_ko.get(main_sky, main_sky)
+                            temp = round(item['main']['temp'], 1)
+                            timeline_forecasts.append(f"{dt_kst.hour}시({sky_ko},{temp}℃)")
+                    if timeline_forecasts:
+                        msg += f"• <b>{s_name}{dome_tag}</b>\n  └ {', '.join(timeline_forecasts)}\n"
+                    else:
+                        tomorrow_str = (datetime.now(KST) + timedelta(days=1)).strftime("%Y-%m-%d")
+                        for item in res.get("list", []):
+                            dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
+                            if dt_kst.strftime("%Y-%m-%d") == tomorrow_str and dt_kst.hour in target_hours:
+                                main_sky = item['weather'][0]['main'].lower()
+                                sky_ko = w_ko.get(main_sky, main_sky)
+                                temp = round(item['main']['temp'], 1)
+                                timeline_forecasts.append(f"{dt_kst.hour}시({sky_ko},{temp}℃)")
+                        if timeline_forecasts:
+                            msg += f"• <b>{s_name}{dome_tag} (내일)</b>\n  └ {', '.join(timeline_forecasts)}\n"
+                        else:
+                            msg += f"• {s_name}: 금일 일정 마감\n"
+                except:
+                    msg += f"• {s_name}: 연동 지연\n"
+            msg += "\n"
+        await status_msg.delete()
+        await update.message.reply_text(msg, parse_mode="HTML")
+        return
+    
     # [개인 대화방 관리자 전용] 초간단 원터치 수식 연산 제어 엔진 (+유저ID 포인트 / -유저ID 포인트)
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
         if text.startswith(('/점수차감', '/차감', '/포인트지급', '/지급', '+포인트', '+', '-')):
