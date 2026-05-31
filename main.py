@@ -31,6 +31,8 @@ client = MongoClient(MONGO_URL)
 mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
 col_scores = mongodb['game_scores']
+
+# 한일 야구장 정밀 좌표 매핑 데이터 (KBO 10개, NPB 12개)
 STADIUMS = {
     "KBO (한국)": {
         "잠실 (LG/두산)": {"lat": 37.5122, "lon": 127.0719},
@@ -475,7 +477,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if update.effective_chat.type != "private":
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
             return
-if text.startswith(('/날씨', '!날씨')):
+
+    # [실시간 야구장 타겟팅 기상 모듈] 한국/일본 전 구장 오후 1시 ~ 8시 날씨 트렌드 분석 브리핑
+    if text.startswith(('/날씨', '!날씨')):
         if not WEATHER_API_KEY:
             return await update.message.reply_text("⚠️ 날씨 API 키가 설정되지 않았습니다.")
         
@@ -528,7 +532,7 @@ if text.startswith(('/날씨', '!날씨')):
         await status_msg.delete()
         await update.message.reply_text(msg, parse_mode="HTML")
         return
-    
+
     # [개인 대화방 관리자 전용] 초간단 원터치 수식 연산 제어 엔진 (+유저ID 포인트 / -유저ID 포인트)
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
         if text.startswith(('/점수차감', '/차감', '/포인트지급', '/지급', '+포인트', '+', '-')):
@@ -821,12 +825,7 @@ def submit_score():
     user_name = data.get('user_name', '유저')
     score = int(data.get('score', 0))
     game_type = data.get('game', 'brick')
-    
-    col_scores.update_one(
-        {"chat_id": chat_id, "user_id": user_id, "game": game_type},
-        {"$set": {"user_name": user_name}, "$max": {"score": score}},
-        upsert=True
-    )
+    col_scores.update_one({"chat_id": chat_id, "user_id": user_id, "game": game_type}, {"$set": {"user_name": user_name}, "$max": {"score": score}}, upsert=True)
     return jsonify({"status": "success"}), 200
 
 def run_flask():
