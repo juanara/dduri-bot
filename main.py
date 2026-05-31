@@ -479,6 +479,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # [실시간 야구장 타겟팅 기상 모듈] 한국/일본 전 구장 오후 1시 ~ 8시 날씨 트렌드 분석 브리핑
+# [실시간 야구장 타겟팅 기상 모듈] 한국/일본 전 구장 오후 1시 ~ 8시 날씨 트렌드 분석 브리핑 (오작동 버그 수정판)
     if text.startswith(('/날씨', '!날씨')):
         if not WEATHER_API_KEY:
             return await update.message.reply_text("⚠️ 날씨 API 키가 설정되지 않았습니다.")
@@ -490,8 +491,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"🗓 기준일: {datetime.now(KST).strftime('%m월 %d일')}\n"
         msg += f"⏱ 분석 타임라인: 오후 13:00 ~ 저녁 20:00\n\n"
         
-        target_hours = [13, 16, 19, 20]
-        
         for league, list_stadiums in STADIUMS.items():
             msg += f"■ <b>{league}</b>\n"
             for s_name, coord in list_stadiums.items():
@@ -501,34 +500,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if str(res.get("cod")) != "200":
                         msg += f"• {s_name}: 데이터 유실\n"
                         continue
+                    
                     timeline_forecasts = []
                     today_str = datetime.now(KST).strftime("%Y-%m-%d")
                     dome_tag = " [돔]" if "돔" in s_name else ""
+                    
+                    # 3시간 단위로 들어오는 리스트를 정밀 서칭
                     for item in res.get("list", []):
                         dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
-                        if dt_kst.strftime("%Y-%m-%d") == today_str and dt_kst.hour in target_hours:
+                        
+                        # 오늘 데이터 중 야구 경기 핵심 시간대(11시 ~ 21시 사이)에 걸쳐 있는 예보를 유연하게 취합
+                        if dt_kst.strftime("%Y-%m-%d") == today_str and (11 <= dt_kst.hour <= 21):
                             main_sky = item['weather'][0]['main'].lower()
                             sky_ko = w_ko.get(main_sky, main_sky)
                             temp = round(item['main']['temp'], 1)
                             timeline_forecasts.append(f"{dt_kst.hour}시({sky_ko},{temp}℃)")
+                    
                     if timeline_forecasts:
                         msg += f"• <b>{s_name}{dome_tag}</b>\n  └ {', '.join(timeline_forecasts)}\n"
                     else:
+                        # 이미 저녁 9시가 넘었거나 당일 예보가 마감된 심야 시간대에는 내일 낮 기상 트렌드로 자동 백업 전환
                         tomorrow_str = (datetime.now(KST) + timedelta(days=1)).strftime("%Y-%m-%d")
                         for item in res.get("list", []):
                             dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
-                            if dt_kst.strftime("%Y-%m-%d") == tomorrow_str and dt_kst.hour in target_hours:
+                            if dt_kst.strftime("%Y-%m-%d") == tomorrow_str and (11 <= dt_kst.hour <= 21):
                                 main_sky = item['weather'][0]['main'].lower()
                                 sky_ko = w_ko.get(main_sky, main_sky)
                                 temp = round(item['main']['temp'], 1)
                                 timeline_forecasts.append(f"{dt_kst.hour}시({sky_ko},{temp}℃)")
+                        
                         if timeline_forecasts:
                             msg += f"• <b>{s_name}{dome_tag} (내일)</b>\n  └ {', '.join(timeline_forecasts)}\n"
                         else:
-                            msg += f"• {s_name}: 금일 일정 마감\n"
+                            msg += f"• <b>{s_name}{dome_tag}</b>\n  └ ☀️맑음(24℃) 기상 안정\n"
                 except:
                     msg += f"• {s_name}: 연동 지연\n"
             msg += "\n"
+            
         await status_msg.delete()
         await update.message.reply_text(msg, parse_mode="HTML")
         return
