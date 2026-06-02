@@ -157,7 +157,7 @@ async def custom_scheduler_loop(application):
                         try:
                             await bot.send_message(
                                 chat_id=int(r_chat_id),
-                                text="📦 <b>연합상자가 출현했습니다!</b>\n가족방최고를 먼저 쳐주신 1분에게 랜덤 포인트를 지급합니다!",
+                                text="📦 <b>연합상자가 출현했습니다!</b>\n /가족방최고 혹은 !가족방최고 를 먼저 쳐주신 1분에게 랜덤 포인트를 지급합니다!",
                                 parse_mode="HTML"
                             )
                         except: pass
