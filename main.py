@@ -126,14 +126,14 @@ async def send_custom_output(bot, chat_id, data, title=""):
     except Exception as e:
         logging.error(f"Output Error: {e}")
 
-# 엔진 3 스케줄러 루프 (중복 제거 및 완벽 보정판)
+# 엔진 3 스케줄러 루프 (30~55분 랜덤 가변 낙하 모듈 탑재 완료판)
 async def custom_scheduler_loop(application):
     global box_event_rooms
     await asyncio.sleep(10)
     bot = application.bot
     
-    # 40분 주기 체크용 분 단위 변수 초기화
-    last_box_check_minute = -1
+    # 첫 구동 시점의 다음 상자 투하 타임스탬프를 [현재 시간 + 30~55분 랜덤 값]으로 정밀 동기화
+    next_box_ts = datetime.now(KST).timestamp() + random.randint(30, 55) * 60
     
     while True:
         try:
@@ -141,26 +141,23 @@ async def custom_scheduler_loop(application):
             now_ts = now.timestamp()
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
             
-            # 현재 시각을 전체 '분' 단위로 변환
-            current_total_minute = now.hour * 60 + now.minute
-            
-            # 매 40분 주기마다 상자 이벤트 강제 활성화 및 무조건 투하
-            if current_total_minute % 40 == 0:
-                if last_box_check_minute != current_total_minute:
-                    last_box_check_minute = current_total_minute
+            # 무작위로 추려진 다음 연합상자 투하 타임라인 도달 시 실행
+            if now_ts >= next_box_ts:
+                # 실행과 동시에 다음 낙하 사이클을 다시 30~55분 사이의 무작위 난수로 롤링 갱신
+                next_box_ts = now_ts + random.randint(30, 55) * 60
+                
+                for r in list(col_members.find()):
+                    r_chat_id = str(r['chat_id'])
                     
-                    for r in list(col_members.find()):
-                        r_chat_id = str(r['chat_id'])
-                        
-                        # 상자 획득 상태 강제 활성화(True) 변환
-                        box_event_rooms[r_chat_id] = True
-                        try:
-                            await bot.send_message(
-                                chat_id=int(r_chat_id),
-                                text="📦 <b>연합상자가 출현했습니다!</b>\n /가족방최고 혹은 !가족방최고 를 먼저 쳐주신 1분에게 랜덤 포인트를 지급합니다!",
-                                parse_mode="HTML"
-                            )
-                        except: pass
+                    # 상자 획득 제어 세션을 강제 True 개방
+                    box_event_rooms[r_chat_id] = True
+                    try:
+                        await bot.send_message(
+                            chat_id=int(r_chat_id),
+                            text="📦 <b>연합상자가 출현했습니다!</b>\n /가족방최고 혹은 !가족방최고 를 먼저 쳐주신 1분에게 랜덤 포인트를 지급합니다!",
+                            parse_mode="HTML"
+                        )
+                    except: pass
 
             # 기존 일반 예약 스케줄 서칭 로직
             for s in list(col_sched.find()):
@@ -182,7 +179,7 @@ async def custom_scheduler_loop(application):
         except Exception as e:
             logging.error(f"Scheduler Loop Error: {e}")
         
-        # 40분 단위를 놓치지 않기 위해 체크 주기를 10초로 동기화합니다.
+        # 가변 정밀 스캔 타이밍 보정을 위해 체크 주기를 10초로 동기화합니다.
         await asyncio.sleep(10)
 
 # 엔진 4 저장 로직
@@ -263,6 +260,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
     uname = update.effective_user.first_name
     
+    # [최상단 배치 고정] 관리자 전용 미참여자 포함 방 전체 실시간 명단 격리 조회 엔진
     if text.startswith('/유저조회'):
         if uid not in ADMIN_LIST or update.effective_chat.type != "private": return
         sess = col_sessions.find_one({"admin_id": uid})
@@ -404,6 +402,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
             return
 
+    # [실시간 야구장 타겟팅 기상 모듈] 범위형 유연 스캔 엔진 패치 완료판
     if text.startswith(('/날씨', '!날씨')):
         if not WEATHER_API_KEY: return await update.message.reply_text("⚠️ 날씨 API 키가 설정되지 않았습니다.")
         status_msg = await update.message.reply_text("🛰 <b>한·일 전 구장 예보 데이터 취합 중...</b>", parse_mode="HTML")
@@ -443,6 +442,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.delete(); await update.message.reply_text(msg, parse_mode="HTML")
         return
 
+    # [개인 대화방 관리자 전용] 초간단 원터치 수식 연산 제어 엔진 (+유저ID 포인트 / -유저ID 포인트)
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
         if text.startswith(('/점수차감', '/차감', '/포인트지급', '/지급', '+포인트', '+', '-')):
             parts = text.split()
