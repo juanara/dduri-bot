@@ -132,7 +132,6 @@ async def custom_scheduler_loop(application):
     await asyncio.sleep(10)
     bot = application.bot
     
-    # 첫 가동 시점 기점으로 다음 상자 투하 타임스탬프를 30~55분 랜덤 값으로 세팅
     next_box_ts = datetime.now(KST).timestamp() + random.randint(30, 55) * 60
     
     while True:
@@ -141,7 +140,6 @@ async def custom_scheduler_loop(application):
             now_ts = now.timestamp()
             now_date, now_time = now.strftime("%Y%m%d"), now.strftime("%H%M")
             
-            # 랜덤 타임스탬프 스케줄 도달 시 실행
             if now_ts >= next_box_ts:
                 next_box_ts = now_ts + random.randint(30, 55) * 60
                 
@@ -156,7 +154,6 @@ async def custom_scheduler_loop(application):
                         )
                     except: pass
 
-            # 기존 일반 예약 스케줄 서칭 로직
             for s in list(col_sched.find()):
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
                     if now_date > s['end_dt']: col_sched.delete_one({"_id": s['_id']})
@@ -335,9 +332,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
+    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (일일 5회 제한 락 + 패스스루 복원 장치 반영)
     if text.startswith(('/가족방최고', '!가족방최고')):
         user_msg_id = update.message.message_id
         r_chat_id = str(chat_id)
+        today_str = datetime.now(KST).strftime("%Y%m%d")
         
         if not box_event_rooms.get(r_chat_id, False):
             err_msg = await update.message.reply_text("💨 현재 이 방에 활성화된 연합상자가 없습니다. 다음 출현을 기다려주세요!")
@@ -345,18 +344,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
             return
             
-        box_event_rooms[r_chat_id] = False
         user_record = col_scores.find_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"})
-        current_score = user_record["score"] if user_record else 0
+        last_box_date = user_record.get("last_box_date", "") if user_record else ""
+        today_box_count = user_record.get("today_box_count", 0) if user_record else 0
         
+        if last_box_date != today_str:
+            today_box_count = 0
+            
+        # 💡 [핵심 교정] 상자 수급 5회 한도 초과 시, 상자 세션(True)을 그대로 살려두고 return 탈출하여 다음 타자에게 양도
+        if today_box_count >= 5:
+            limit_msg = await update.message.reply_text(f"🛑 {uname}님은 오늘 연합상자 획득 한도(5회)를 초과하셨습니다. 다음 분에게 양도됩니다!")
+            if update.effective_chat.type != "private":
+                asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, limit_msg.message_id], 3.0))
+            return
+
+        box_event_rooms[r_chat_id] = False
+        current_score = user_record["score"] if user_record else 0
         box_bonus = random.randint(300, 2000)
         new_score = current_score + box_bonus
-        col_scores.update_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": new_score}}, upsert=True)
-        await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 무작위 보상 +{box_bonus} 포인트 지급 완료. 현재 방 포인트: {new_score}")
+        new_box_count = today_box_count + 1
+        
+        col_scores.update_one(
+            {"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"},
+            {"$set": {"user_name": uname, "score": new_score, "last_box_date": today_str, "today_box_count": new_box_count}},
+            upsert=True
+        )
+        await update.message.reply_text(f"🎉 축하합니다! {uname}님이 선착순으로 연합상자를 획득하셨습니다! 보상 +{box_bonus} 포인트 지급 완료.\n⏱ (오늘 상자 획득 횟수: {new_box_count}/5회)")
         return
 
+    # [독립형 도박 엔진] 바카라 스타일 베팅 모듈 (대박/중박/소박 각각 독립 일일 10회 제한 엔진 반영)
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
         user_msg_id = update.message.message_id
+        today_str = datetime.now(KST).strftime("%Y%m%d")
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
         current_rolling = user_record.get("rolling_point", 0) if user_record else 0
@@ -367,6 +386,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text.startswith(('/소박', '!소박')): cost, win_chance, win_reward, gamble_type = 500, 0.45, 1000, "소박"
 
         if gamble_type:
+            # 해당 판돈 종류의 날짜 도장 및 카운트 가독
+            last_date_key = f"last_date_{gamble_type}"
+            count_key = f"count_{gamble_type}"
+            
+            saved_gamble_date = user_record.get(last_date_key, "") if user_record else ""
+            saved_gamble_count = user_record.get(count_key, 0) if user_record else 0
+            
+            if saved_gamble_date != today_str:
+                saved_gamble_count = 0
+                
+            if saved_gamble_count >= 10:
+                limit_msg = await update.message.reply_text(f"🛑 {uname}님은 오늘 [{gamble_type}] 베팅 한도(10회)를 모두 소모하셨습니다. 내일 다시 도전해 주세요!")
+                if update.effective_chat.type != "private":
+                    asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, limit_msg.message_id], 3.0))
+                return
+                
             if current_score < cost:
                 err_msg = await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score}")
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
@@ -375,14 +410,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             current_score -= cost
             rolling_bonus = int(cost * 0.01)
             new_rolling = current_rolling + rolling_bonus
+            new_gamble_count = saved_gamble_count + 1
             
             if random.random() < win_chance:
                 current_score += win_reward
-                msg_text = f"🔥 {uname}님 {gamble_type} 성공! 배당 2배인 {win_reward} 포인트를 획득했습니다!\n현재 보유 포인트: {current_score}점\n💰 누적 롤링 포인트: {new_rolling} P (+{rolling_bonus})"
+                msg_text = f"🔥 {uname}님 {gamble_type} 성공! 배당 2배인 {win_reward} 포인트를 획득했습니다!\n현재 보유 포인트: {current_score}점\n💰 누적 롤링 포인트: {new_rolling} P (+{rolling_bonus})\n⏱ (오늘 [{gamble_type}] 참여 횟수: {new_gamble_count}/10회)"
             else:
-                msg_text = f"💀 {uname}님 쪽박입니다 배팅포인트를 잃었습니다.\n현재 보유 포인트: {current_score}점\n💰 누적 롤링 포인트: {new_rolling} P (+{rolling_bonus})"
+                msg_text = f"💀 {uname}님 쪽박입니다 배팅포인트를 잃었습니다.\n현재 보유 포인트: {current_score}점\n💰 누적 롤링 포인트: {new_rolling} P (+{rolling_bonus})\n⏱ (오늘 [{gamble_type}] 참여 횟수: {new_gamble_count}/10회)"
                 
-            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": current_score, "rolling_point": new_rolling}}, upsert=True)
+            col_scores.update_one(
+                {"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, 
+                {"$set": {"user_name": uname, "score": current_score, "rolling_point": new_rolling, last_date_key: today_str, count_key: new_gamble_count}}, 
+                upsert=True
+            )
             res_msg = await update.message.reply_text(msg_text)
             if update.effective_chat.type != "private":
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
@@ -698,7 +738,6 @@ def run_flask():
 
 # 비동기 인스턴스 정석 초기화 모듈
 async def post_init(application):
-    # 원래 정상 작동하던 구조 그대로 완전 자가격리 기동
     loop = asyncio.get_event_loop()
     loop.create_task(userbot.start())
     loop.create_task(custom_scheduler_loop(application))
