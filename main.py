@@ -23,7 +23,7 @@ STRING_SESSION = os.getenv("STRING_SESSION")
 MONGO_URL = os.getenv("MONGO_URL")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
-# 管理者(관리자) 설정 대응
+# 관리자 설정 대응
 ADMIN_ID_STR = os.getenv("ADMIN_ID", "8092185425")
 ADMIN_LIST = [int(i.strip()) for i in ADMIN_ID_STR.split(",") if i.strip()]
 
@@ -310,14 +310,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # 📊 [실시간 스포츠 스코어센터 진입 링크 무결점 복원 구역]
+    # 📊 [실시간 스포츠 스코어센터 진입 링크 구역]
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
         keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # 📅 [개조형 출석체크 엔진 - 30일 연속 보너스 레이더 반영]
+    # 🎲 [유저 전용 /대박, /중박, /소박 포인트 롤링 도박 복원 엔진 구역]
+    if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
+        user_msg_id = update.message.message_id
+        user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        current_score = user_record["score"] if user_record else 0
+        current_rolling = user_record.get("rolling_point", 0) if user_record else 0
+        
+        cost, win_chance, win_reward, gamble_type = 0, 0.0, 0, ""
+        if text.startswith(('/대박', '!대박')): cost, win_chance, win_reward, gamble_type = 2000, 0.40, 4000, "대박"
+        elif text.startswith(('/중박', '!중박')): cost, win_chance, win_reward, gamble_type = 1000, 0.45, 2000, "중박"
+        elif text.startswith(('/소박', '!소박')): cost, win_chance, win_reward, gamble_type = 500, 0.45, 1000, "소박"
+
+        if gamble_type:
+            if current_score < cost:
+                err_msg = await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score:,} P")
+                if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
+                return
+                
+            current_score -= cost
+            rolling_bonus = int(cost * 0.01)
+            new_rolling = current_rolling + rolling_bonus
+            
+            if random.random() < win_chance:
+                current_score += win_reward
+                msg_text = f"🔥 <b>{uname}님 {gamble_type} 성공!</b> 배당 2배인 {win_reward:,} 포인트를 획득했습니다!\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
+            else:
+                msg_text = f"💀 <b>{uname}님 쪽박입니다.</b> 배팅포인트 {cost:,} P를 잃었습니다.\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
+                
+            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": current_score, "rolling_point": new_rolling}}, upsert=True)
+            res_msg = await update.message.reply_text(msg_text, parse_mode="HTML")
+            if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
+            return
+
+    # 📅 [개조형 출석체크 엔진]
     if text.startswith(('/출첵', '!출첵', '/출석체크', '!출석체크')):
         user_msg_id = update.message.message_id
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
