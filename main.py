@@ -317,6 +317,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
+    # 🍱 [유저 전용 랜덤 추천 메뉴 복원 및 야메추 가동 엔진 구역]
+    if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추', '/야메추', '!야메추')):
+        lunch_menu = ["김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", "짜장면", "짬뽕", "볶음밥", "탕수육", "김밥", "라면", "떡볶이", "순대", "순대국밥", "뼈해장국", "설렁탕", "갈비탕", "육개장", "비빔밥", "칼국수", "수제비", "물냉면", "비빔냉면", "우동", "초밥", "회덮밥", "파스타", "피자", "햄버거", "샌드위치"]
+        dinner_menu = ["삼겹살", "돼지갈비", "소고기구이", "닭갈비", "치킨", "족발", "보쌈", "곱창구이", "막창구이", "곱창전골", "아구찜", "해물찜", "찜닭", "닭볶음탕", "감자탕", "샤브샤브", "스키야키", "양꼬치", "마라탕", "마라샹궈", "모듬회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", "스테이크", "파스타", "연어회", "파전", "육회"]
+        starbucks_menu = ["카페 아메리카노", "카페 라떼", "스타벅스 돌체 라떼", "카라멜 마키아또", "화이트 초콜릿 모카", "카페 모카", "바닐라 플랫 화이트", "에스프레소", "에스프레소 마키아또", "에스프레소 콘 파나", "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 블랙티", "유자 민트 티", "민트 블렌디드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", "딸기 딜라이트 요거트 블렌디드", "망고 바나나 블렌디드", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"]
+        yasik_menu = ["후라이드 치킨", "매운 양념 치킨", "한방 온족발", "직화 불족발", "마늘 보쌈", "매콤 국물 닭발", "숯불 돼지껍데기", "찹쌀 탕수육", "직화 불막창", "돼지고기 짜글이", "페퍼로니 피자", "국물 떡볶이와 튀김", "한강 즉석 라면", "치즈 불닭", "오돌뼈와 주먹밥", "타코야끼", "계란말이와 골뱅이무침", "해물파전", "콘치즈와 모듬 소시지", "훈제 연어 샐러드"]
+        
+        if "점메추" in text: await update.message.reply_text(f"☀️ 오늘 점심 메뉴는 <b>{random.choice(lunch_menu)}</b> 어떠세요?", parse_mode="HTML")
+        elif "저메추" in text: await update.message.reply_text(f"🌙 오늘 저녁 메뉴는 <b>{random.choice(dinner_menu)}</b> 어떠세요?", parse_mode="HTML")
+        elif "커추" in text: await update.message.reply_text(f"☕️ 스타벅스 추천 메뉴는 <b>{random.choice(starbucks_menu)}</b> 입니다.", parse_mode="HTML")
+        elif "야메추" in text: await update.message.reply_text(f"🔥 밤을 잊은 그대에게! 오늘 야식 메뉴는 <b>{random.choice(yasik_menu)}</b> 강력 추천합니다!", parse_mode="HTML")
+        return
+
     # 🎲 [유저 전용 /대박, /중박, /소박 포인트 롤링 도박 구역 + 일일 10회 제한]
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
         user_msg_id = update.message.message_id
@@ -494,7 +507,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if c_room_str in bet_timer_tasks: bet_timer_tasks[c_room_str].cancel()
         return await update.message.reply_text(refund_report if all_participants else "📋 적특 완료! 반환할 배팅 내역 청소 완료.", parse_mode="HTML")
 
-    # 🌦 [날씨 예보 모듈 - 오후 15시 및 18시 저격 필터 엔진 복원]
+    # 🌦 [날씨 예보 모듈 - 오후 15시 및 18시 저격 필터 엔진]
     if text.startswith(('/날씨', '!날씨')):
         if not WEATHER_API_KEY: return await update.message.reply_text("⚠️ 날씨 API 키가 설정되지 않았습니다.")
         status_msg = await update.message.reply_text("🛰 <b>한·일 전 구장 예보 데이터 취합 중...</b>", parse_mode="HTML")
@@ -513,7 +526,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     for item in res.get("list", []):
                         dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
-                        # 💡 오직 당일의 오후 15시와 18시 데이터만 타겟팅 필터링 수행
                         if dt_kst.strftime("%Y-%m-%d") == today_str and dt_kst.hour in [15, 18]:
                             sky_ko = w_ko.get(item['weather'][0]['main'].lower(), item['weather'][0]['main'].lower())
                             timeline_forecasts.append(f"{dt_kst.hour}시({sky_ko},{round(item['main']['temp'], 1)}℃)")
@@ -521,7 +533,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if timeline_forecasts: 
                         msg += f"• <b>{s_name}{dome_tag}</b>\n  └ {', '.join(timeline_forecasts)}\n"
                     else: 
-                        # 당일 15시/18시 데이터가 이미 지나갔을 경우 기상 안정으로 패스스루 처리
                         msg += f"• <b>{s_name}{dome_tag}</b>\n  └ ☀️맑음 기상 안정\n"
                 except: 
                     msg += f"• {s_name}: 연동 지연\n"
