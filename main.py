@@ -317,7 +317,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # 🎲 [유저 전용 /대박, /중박, /소박 포인트 롤링 도박 복원 엔진 구역 + 일일 10회 제한 명밀 이식]
+    # 🎲 [유저 전용 /대박, /중박, /소박 포인트 롤링 도박 구역 + 일일 10회 제한]
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
         user_msg_id = update.message.message_id
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
@@ -326,8 +326,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         now_kst = datetime.now(KST)
         today_str = now_kst.strftime("%Y%m%d")
-        
-        # 날짜가 바뀌었으면 카운트 초기화를 위해 검증용 변수 파싱
         last_gamble_date = user_record.get("last_gamble_date", "") if user_record else ""
         
         cost, win_chance, win_reward, gamble_type, count_field = 0, 0.0, 0, "", ""
@@ -394,7 +392,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
         return
 
-    # [수급 기능 2] 연합상자 + 일일 5회 수령 제한 이식
+    # [수급 기능 2] 연합상자 + 일일 5회 수령 제한
     if text.startswith(('/가족방최고', '!가족방최고')):
         user_msg_id = update.message.message_id
         r_chat_id = str(chat_id)
@@ -496,12 +494,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if c_room_str in bet_timer_tasks: bet_timer_tasks[c_room_str].cancel()
         return await update.message.reply_text(refund_report if all_participants else "📋 적특 완료! 반환할 배팅 내역 청소 완료.", parse_mode="HTML")
 
-    # [날씨 예보 모듈]
+    # 🌦 [날씨 예보 모듈 - 오후 15시 및 18시 저격 필터 엔진 복원]
     if text.startswith(('/날씨', '!날씨')):
         if not WEATHER_API_KEY: return await update.message.reply_text("⚠️ 날씨 API 키가 설정되지 않았습니다.")
         status_msg = await update.message.reply_text("🛰 <b>한·일 전 구장 예보 데이터 취합 중...</b>", parse_mode="HTML")
         w_ko = {"clear": "☀️맑음", "clouds": "☁️흐림", "rain": "🌧비", "drizzle": "🌦이슬비", "thunderstorm": "⛈폭우", "snow": "❄️눈", "mist": "🌫안개"}
-        msg = f"⚾️ <b>한·일 프로야구장 시간별 기상 브리핑</b>\n🗓 기준일: {datetime.now(KST).strftime('%m월 %d일')}\n\n"
+        msg = f"⚾️ <b>한·일 프로야구장 시간별 기상 브리핑 (15시 / 18시)</b>\n🗓 기준일: {datetime.now(KST).strftime('%m월 %d일')}\n\n"
         for league, list_stadiums in STADIUMS.items():
             msg += f"■ <b>{league}</b>\n"
             for s_name, coord in list_stadiums.items():
@@ -509,16 +507,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     url = f"http://api.openweathermap.org/data/2.5/forecast?lat={coord['lat']}&lon={coord['lon']}&appid={WEATHER_API_KEY}&units=metric"
                     res = requests.get(url, timeout=8).json()
                     if str(res.get("cod")) != "200": msg += f"• {s_name}: 데이터 유실\n"; continue
+                    
                     timeline_forecasts, today_str = [], datetime.now(KST).strftime("%Y-%m-%d")
                     dome_tag = " [돔]" if "돔" in s_name else ""
+                    
                     for item in res.get("list", []):
                         dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
-                        if dt_kst.strftime("%Y-%m-%d") == today_str and (11 <= dt_kst.hour <= 21):
+                        # 💡 오직 당일의 오후 15시와 18시 데이터만 타겟팅 필터링 수행
+                        if dt_kst.strftime("%Y-%m-%d") == today_str and dt_kst.hour in [15, 18]:
                             sky_ko = w_ko.get(item['weather'][0]['main'].lower(), item['weather'][0]['main'].lower())
                             timeline_forecasts.append(f"{dt_kst.hour}시({sky_ko},{round(item['main']['temp'], 1)}℃)")
-                    if timeline_forecasts: msg += f"• <b>{s_name}{dome_tag}</b>\n  └ {', '.join(timeline_forecasts)}\n"
-                    else: msg += f"• <b>{s_name}{dome_tag}</b>\n  └ ☀️맑음 기상 안정\n"
-                except: msg += f"• {s_name}: 연동 지연\n"
+                            
+                    if timeline_forecasts: 
+                        msg += f"• <b>{s_name}{dome_tag}</b>\n  └ {', '.join(timeline_forecasts)}\n"
+                    else: 
+                        # 당일 15시/18시 데이터가 이미 지나갔을 경우 기상 안정으로 패스스루 처리
+                        msg += f"• <b>{s_name}{dome_tag}</b>\n  └ ☀️맑음 기상 안정\n"
+                except: 
+                    msg += f"• {s_name}: 연동 지연\n"
             msg += "\n"
         await status_msg.delete(); await update.message.reply_text(msg, parse_mode="HTML")
         return
