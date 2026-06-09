@@ -32,6 +32,10 @@ mongodb = client['dduri_bot_db']
 col_main, col_members, col_sched, col_sessions = mongodb['settings'], mongodb['members'], mongodb['schedules'], mongodb['admin_sessions']
 col_scores = mongodb['game_scores']
 
+# 배팅 엔진 전용 핵심 컬렉션
+col_bets = mongodb['active_bets']
+col_user_bets = mongodb['user_bets']
+
 # 한일 야구장 정밀 좌표 매핑 데이터 (KBO 10개, NPB 12개)
 STADIUMS = {
     "KBO (한국)": {
@@ -281,26 +285,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    if text.startswith(('/game', '!game', '/게임', '!게임')):
-        u_encoded = urllib.parse.quote(uname)
-        url_snake = f"https://dduri-bot.onrender.com/game/snake?chat_id={chat_id}&user_id={uid}&user_name={u_encoded}"
-        keyboard = [[InlineKeyboardButton(text="🐍 레트로 지렁이게임 시작", url=url_snake)]]
-        await update.message.reply_text("🕹 <b>뜌리 인앱 게임센터</b>\n\n아래 버튼을 누르면 모바일 가상 패드가 장착된 지렁이게임이 즉시 시작됩니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-        return
-
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
         keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-        return
-
-    if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
-        point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
-        msg = "🏆 <b>우리 방 실시간 보유 포인트 TOP 10 순위표</b>\n\n"
-        if not point_records: msg += "→ 아직 등록된 포인트 기록이 없습니다.\n"
-        for idx, r in enumerate(point_records, 1):
-            msg += f" {idx}위 : {r['user_name']} <code>{r['user_id']}</code> - {r['score']}포인트\n"
-        await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
@@ -332,7 +320,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
         return
 
-    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (일일 5회 제한 락 + 패스스루 복원 장치 반영)
+    # [수급 기능 2] 연합상자 선착순 획득 이벤트 연동 구역 (일일 5회 제한 락)
     if text.startswith(('/가족방최고', '!가족방최고')):
         user_msg_id = update.message.message_id
         r_chat_id = str(chat_id)
@@ -348,10 +336,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         last_box_date = user_record.get("last_box_date", "") if user_record else ""
         today_box_count = user_record.get("today_box_count", 0) if user_record else 0
         
-        if last_box_date != today_str:
-            today_box_count = 0
+        if last_box_date != today_str: today_box_count = 0
             
-        # 💡 [핵심 교정] 상자 수급 5회 한도 초과 시, 상자 세션(True)을 그대로 살려두고 return 탈출하여 다음 타자에게 양도
         if today_box_count >= 5:
             limit_msg = await update.message.reply_text(f"🛑 {uname}님은 오늘 연합상자 획득 한도(5회)를 초과하셨습니다. 다음 분에게 양도됩니다!")
             if update.effective_chat.type != "private":
@@ -386,15 +372,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text.startswith(('/소박', '!소박')): cost, win_chance, win_reward, gamble_type = 500, 0.45, 1000, "소박"
 
         if gamble_type:
-            # 해당 판돈 종류의 날짜 도장 및 카운트 가독
             last_date_key = f"last_date_{gamble_type}"
             count_key = f"count_{gamble_type}"
-            
             saved_gamble_date = user_record.get(last_date_key, "") if user_record else ""
             saved_gamble_count = user_record.get(count_key, 0) if user_record else 0
             
-            if saved_gamble_date != today_str:
-                saved_gamble_count = 0
+            if saved_gamble_date != today_str: saved_gamble_count = 0
                 
             if saved_gamble_count >= 10:
                 limit_msg = await update.message.reply_text(f"🛑 {uname}님은 오늘 [{gamble_type}] 베팅 한도(10회)를 모두 소모하셨습니다. 내일 다시 도전해 주세요!")
@@ -426,6 +409,114 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             res_msg = await update.message.reply_text(msg_text)
             if update.effective_chat.type != "private":
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
+            return
+
+    # [관리자 전용 실시간 예측 배팅 제어 엔진 - 대소문자 무관, 대시 기호 가변 파싱 적용 완료판]
+    if uid in ADMIN_LIST:
+        if text.upper().startswith('/BET '):
+            # 🚨 대소문자 허용 및 띄어쓰기 없이 대시(-) 기호로 양 팀 분리 정밀 추출 정규식 개조
+            match = re.search(r'/[bB][eE][tT]\s+([^-]+)-([^\s]+)\s*(\d*)', text)
+            if not match:
+                return await update.message.reply_text("⚠️ 형식 오류!\n/bet A조건(배당)-B조건(배당) 최소포인트")
+            
+            cond_a = match.group(1).strip()
+            cond_b = match.group(2).strip()
+            min_p = int(match.group(3)) if match.group(3) else 100
+            
+            rate_a = 1.0; rate_b = 1.0
+            match_r_a = re.search(r'\(([\d.]+)\)', cond_a)
+            match_r_b = re.search(r'\(([\d.]+)\)', cond_b)
+            if match_r_a: rate_a = float(match_r_a.group(1))
+            if match_r_b: rate_b = float(match_r_b.group(1))
+            
+            # 배팅판 수정 시 자동 롤백 환불 처리
+            old_bets = list(col_user_bets.find({"chat_id": str(chat_id), "amount": {"$exists": True}}))
+            refund_count = 0
+            for ob in old_bets:
+                col_scores.update_one(
+                    {"chat_id": str(chat_id), "user_id": str(ob['user_id']), "game": "snake"},
+                    {"$inc": {"score": ob['amount']}}, upsert=True
+                )
+                refund_count += 1
+                
+            col_bets.delete_many({"chat_id": str(chat_id)})
+            col_bets.insert_one({
+                "chat_id": str(chat_id), "status": "open", "min_p": min_p,
+                "A_name": cond_a, "A_rate": rate_a, "B_name": cond_b, "B_rate": rate_b
+            })
+            col_user_bets.delete_many({"chat_id": str(chat_id)})
+            
+            btns = [
+                [InlineKeyboardButton(f"🅰️ {cond_a}", callback_data=f"select_team:A"),
+                 InlineKeyboardButton(f"🅱️ {cond_b}", callback_data=f"select_team:B")]
+            ]
+            
+            bet_board = f"🔥 <b>[승부 예측 라이브 배팅판 오픈]</b>\n\n"
+            if refund_count > 0:
+                bet_board = f"⚡️ <b>[배팅판 조건 실시간 수정 완료]</b>\n⚠️ 기존 배팅 참여자 {refund_count}명의 원금이 자동 롤백 환불되었습니다. 다시 마킹하세요!\n\n"
+            
+            bet_board += f"🔸 <b>선택 A</b> : {cond_a} (배당: {rate_a}배)\n"
+            bet_board += f"🔸 <b>선택 B</b> : {cond_b} (배당: {rate_b}배)\n"
+            bet_board += f"💰 <b>최소 참여 금액</b> : {min_p} 포인트\n\n"
+            bet_board += f"👉 원하는 조건을 아래 [딸깍] 선택한 후 판돈 버튼까지 순서대로 누르면 즉시 마킹됩니다!"
+            
+            await update.message.reply_text(bet_board, reply_markup=InlineKeyboardMarkup(btns), parse_mode="HTML")
+            return
+
+        if text == "/bet마감":
+            res = col_bets.update_one({"chat_id": str(chat_id)}, {"$set": {"status": "closed"}})
+            if res.modified_count > 0:
+                await update.message.reply_text("🔒 <b>예측 배팅이 마감되었습니다.</b>\n경기가 시작되어 투표가 동결됩니다.")
+            else:
+                await update.message.reply_text("⚠️ 현재 활성화된 배팅판이 없습니다.")
+            return
+
+        if text.startswith(('/bet정산 ', '!bet정산 ')):
+            ans = text.split()[-1].upper()
+            if ans not in ['A', 'B']:
+                return await update.message.reply_text("⚠️ /bet정산 A 혹은 /bet정산 B 로 결과를 확정하세요.")
+            
+            game_bet = col_bets.find_one({"chat_id": str(chat_id)})
+            if not game_bet: return await update.message.reply_text("⚠️ 정산할 예측 배팅판이 존재하지 않습니다.")
+            
+            rate_key = f"{ans}_rate"
+            name_key = f"{ans}_name"
+            win_rate = game_bet.get(rate_key, 1.0)
+            win_name = game_bet.get(name_key, "")
+            
+            winners = list(col_user_bets.find({"chat_id": str(chat_id), "choice": ans, "amount": {"$exists": True}}))
+            report = f"🎉 <b>[예측 배팅 정산 완료 브리핑]</b>\n\n🎯 <b>최종 적중 조건</b>: {win_name}\n📊 <b>적용 배당률</b>: {win_rate}배\n\n"
+            
+            for w in winners:
+                p_win = int(w['amount'] * win_rate)
+                col_scores.update_one(
+                    {"chat_id": str(chat_id), "user_id": str(w['user_id']), "game": "snake"},
+                    {"$inc": {"score": p_win}}, upsert=True
+                )
+                report += f"• {w['user_name']}님: +{p_win} P 적중 완료\n"
+                
+            col_bets.delete_many({"chat_id": str(chat_id)})
+            col_user_bets.delete_many({"chat_id": str(chat_id)})
+            await update.message.reply_text(report if winners else f"📋 정산 완료! 적중 조건: {win_name}\n해당 조건에 적중한 유저가 없습니다.", parse_mode="HTML")
+            return
+
+        if text == "/bet적특":
+            game_bet = col_bets.find_one({"chat_id": str(chat_id)})
+            if not game_bet: return await update.message.reply_text("⚠️ 적특 처리할 예측 배팅판이 없습니다.")
+            
+            all_participants = list(col_user_bets.find({"chat_id": str(chat_id), "amount": {"$exists": True}}))
+            refund_report = "⛈ <b>[경기 취소 및 적중특례(적특) 발동]</b>\n\n모든 배팅 참여자분들의 원금이 1원도 유실 없이 전액 환불 반환 처리되었습니다.\n\n"
+            
+            for p in all_participants:
+                col_scores.update_one(
+                    {"chat_id": str(chat_id), "user_id": str(p['user_id']), "game": "snake"},
+                    {"$inc": {"score": p['amount']}}, upsert=True
+                )
+                refund_report += f"• {p['user_name']}님: {p['amount']} P 환불\n"
+                
+            col_bets.delete_many({"chat_id": str(chat_id)})
+            col_user_bets.delete_many({"chat_id": str(chat_id)})
+            await update.message.reply_text(refund_report if all_participants else "📋 적특 처리 완료! 환불할 배팅 내역이 없습니다.", parse_mode="HTML")
             return
 
     # [실시간 야구장 타겟팅 기상 모듈] 범위형 유연 스캔 엔진 패치 완료판
@@ -468,58 +559,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.delete(); await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # [개인 대화방 관리자 전용] 초간단 원터치 수식 연산 제어 엔진 (+유저ID 포인트 / -유저ID 포인트)
-    if uid in ADMIN_LIST and update.effective_chat.type == "private":
-        if text.startswith(('/점수차감', '/차감', '/포인트지급', '/지급', '+포인트', '+', '-')):
-            parts = text.split()
-            if (text.startswith('+') or text.startswith('-')) and not text.startswith('+포인트'):
-                match_short = re.match(r'^([+-])\s*(\d+)\s+(\d+)$', text)
-                if match_short:
-                    cmd_sign, target_uid = match_short.group(1), match_short.group(2).strip()
-                    try: val = int(match_short.group(3).strip())
-                    except: return await update.message.reply_text("⚠️ 변경할 포인트는 반드시 정수 숫자로 입력하세요")
-                else: return await update.message.reply_text("⚠️ 초간단 수식 형식\n지급: +유저아이디 포인트숫자\n차감: -유저아이디 포인트숫자\n\n예시: +8472713103 1000")
-            else:
-                if len(parts) < 3: return await update.message.reply_text("⚠️ 형식\n차감: /차감 유저아이디 차감숫자\n지급: +포인트 유저아이디 지급숫자")
-                cmd_sign, target_uid = parts[0], parts[1].strip()
-                try: val = int(parts[2].strip())
-                except: return await update.message.reply_text("⚠️ 변경할 포인트는 반드시 정수 숫자로 입력하세요")
-
-            sess = col_sessions.find_one({"admin_id": uid})
-            t_id = sess['target_chat_id'] if sess else None
-            if not t_id: return await update.message.reply_text("⚠️ /설정 명령어로 포인트를 조작할 방을 먼저 활성화해 주세요.")
-            
-            room_info = col_members.find_one({"chat_id": str(t_id)})
-            mapped_name = room_info.get("users", {}).get(target_uid, "신규유저") if room_info else "신규유저"
-            target_record = col_scores.find_one({"chat_id": str(t_id), "user_id": target_uid, "game": "snake"})
-            old_score = target_record.get("score", 0) if target_record else 0
-            act_user_name = target_record.get("user_name", mapped_name) if target_record else mapped_name
-            
-            if cmd_sign in ['/점수차감', '/차감', '-']: new_score, act_name = old_score - val, "차감"
-            else: new_score, act_name = old_score + val, "지급"
-                
-            col_scores.update_one({"chat_id": str(t_id), "user_id": target_uid, "game": "snake"}, {"$set": {"user_name": act_user_name, "score": new_score}}, upsert=True)
-            await update.message.reply_text(f"📉 포인트 {act_name} 완료. 대상유저: {act_user_name}님\n기존 포인트: {old_score}점 → 변경 포인트: {new_score}점")
-            return
-
-    if text.startswith(('/설정', '/리스트', '/삭제')) and uid in ADMIN_LIST and update.effective_chat.type == "private":
-        btns = [[InlineKeyboardButton("📁 공용 설정", callback_data="set_room:common")]]
-        for r in list(col_members.find()):
-            if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
-        return await update.message.reply_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
-        
-    if uid in ADMIN_LIST and update.effective_chat.type == "private":
-        raw_html = update.message.caption_html or update.message.text_html or ""
-        if update.message.photo or "/personal" in raw_html.lower() or "/스케줄등록" in raw_html.lower():
-            m_id = update.message.media_group_id or f"s_{update.message.message_id}"
-            if update.message.photo:
-                if m_id not in media_group_cache: media_group_cache[m_id] = {"ids": [], "caption": raw_html, "task": None}
-                media_group_cache[m_id]["ids"].append(update.message.photo[-1].file_id)
-                if media_group_cache[m_id]["task"]: media_group_cache[m_id]["task"].cancel()
-                media_group_cache[m_id]["task"] = asyncio.create_task(save_logic_with_delay(chat_id, context, m_id))
-            else: await save_logic_with_delay(chat_id, context, None, update.message)
-            return
-
     if text.startswith(('/', '!')):
         cmd = re.sub(r"^[ /!]+", "", text.split()[0]).strip()
         room = col_members.find_one({"chat_id": str(chat_id)})
@@ -527,15 +566,105 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = (room.get("local_commands", {}).get(cmd) if room else None) or main_data.get("commands", {}).get(cmd)
         if target: await send_custom_output(context.bot, chat_id, target)
 
-# 콜백 핸들러
+# 콜백 핸들러 (2단계 가변 금액 단추 자동연산 엔진 이식)
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; data = query.data
+    uid, chat_id, uname = query.from_user.id, query.message.chat_id, query.from_user.first_name
+    
+    # [1단계: 팀 선택] 누르면 즉시 금액 베팅판 하단에 추가 노출
+    if data.startswith("select_team:"):
+        choice = data.split(":")[1]
+        game_bet = col_bets.find_one({"chat_id": str(chat_id)})
+        if not game_bet: return await query.answer("⚠️ 마감되었거나 종료된 예측 배팅판입니다.", show_alert=True)
+        if game_bet.get("status") == "closed": return await query.answer("🔒 경기 시작으로 투표가 차단되었습니다.", show_alert=True)
+        
+        # 중복 체크 ➡️ 이미 최종 마킹(금액까지 승인) 끝난 사람은 이 단계에서 원천 밴
+        already_done = col_user_bets.find_one({"chat_id": str(chat_id), "user_id": str(uid), "amount": {"$exists": True}})
+        if already_done: return await query.answer("❌ 이미 배팅이 마킹 처리되어 수정할 수 없습니다.", show_alert=True)
+        
+        # 가상 마킹용 팀 데이터 선제 임시 저장
+        col_user_bets.update_one(
+            {"chat_id": str(chat_id), "user_id": str(uid)},
+            {"$set": {"choice": choice, "user_name": uname}}, upsert=True
+        )
+        
+        # 팀 마킹 상태를 유지하면서 하단에 가변 판돈 단추 생성 송출
+        cond_a = game_bet['A_name']
+        cond_b = game_bet['B_name']
+        mark_a = "✅ " if choice == 'A' else ""
+        mark_b = "✅ " if choice == 'B' else ""
+        
+        # 금액 단추 레이아웃 구성
+        btns = [
+            [InlineKeyboardButton(f"{mark_a}{cond_a}", callback_data="select_team:A"),
+             InlineKeyboardButton(f"{mark_b}{cond_b}", callback_data="select_team:B")],
+            [InlineKeyboardButton("💰 1,000 P", callback_data="amt:1000"),
+             InlineKeyboardButton("💰 5,000 P", callback_data="amt:5000"),
+             InlineKeyboardButton("💰 10,000 P", callback_data="amt:10000")],
+            [InlineKeyboardButton("💥 보유 전액 [올인]", callback_data="amt:all")]
+        ]
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btns))
+        await query.answer(f"👉 팀 선택 완료. 아래에서 걸고 싶은 판돈 단추를 누르세요!")
+        return
+
+    # [2단계: 금액 단추 최종 베팅 연산] 타이핑 없이 포인트 자동 차감 및 한도 락
+    if data.startswith("amt:"):
+        amt_str = data.split(":")[1]
+        game_bet = col_bets.find_one({"chat_id": str(chat_id)})
+        if not game_bet: return await query.answer("⚠️ 마감되었거나 종료된 예측 배팅판입니다.", show_alert=True)
+        if game_bet.get("status") == "closed": return await query.answer("🔒 경기 시작으로 투표가 차단되었습니다.", show_alert=True)
+        
+        # 유저의 선택 세션 유효성 판정
+        sess_bet = col_user_bets.find_one({"chat_id": str(chat_id), "user_id": str(uid)})
+        if not sess_bet or "choice" not in sess_bet:
+            return await query.answer("☝️ 먼저 상단의 🅰️ 혹은 🅱️ 팀 단추를 먼저 눌러주세요.", show_alert=True)
+        
+        # 이미 최종 확정된 사람 2차 방어
+        if "amount" in sess_bet:
+            return await query.answer("❌ 이미 본 배팅판에 참여를 마치셨습니다 (중복 배팅 불가능).", show_alert=True)
+            
+        u_rec = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        c_score = u_rec['score'] if u_rec else 0
+        
+        # 올인 연산 혹은 고정 금액 추출 바인딩
+        if amt_str == "all":
+            amt = c_score
+            if amt <= 0: return await query.answer("❌ 잔액이 0원이라 올인 배팅을 던질 수 없습니다.", show_alert=True)
+        else:
+            amt = int(amt_str)
+            
+        if amt < game_bet['min_p']:
+            return await query.answer(f"⚠️ 본 예측판의 최소 배팅금액은 {game_bet['min_p']}P 입니다.", show_alert=True)
+            
+        if c_score < amt:
+            return await query.answer(f"❌ 잔액이 부족합니다! 현재 보유 포인트: {c_score}P", show_alert=True)
+            
+        # [최종 승인] 원금 실시간 마이너스 차감 및 영수증 영구 보존
+        col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$inc": {"score": -amt}})
+        col_user_bets.update_one(
+            {"chat_id": str(chat_id), "user_id": str(uid)},
+            {"$set": {"amount": amt}}
+        )
+        
+        c_name = game_bet['A_name'] if sess_bet['choice'] == 'A' else game_bet['B_name']
+        
+        # 유저 화면 상단 팝업 완료 알림
+        await query.answer(f"🎉 [{c_name} / {amt}P] 배팅 접수 완료!", show_alert=True)
+        
+        # 방에 실시간 무결점 마킹 전광판 브리핑 박제
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🎯 <b>[예측 배팅 마킹 마감 성공]</b>\n\n• <b>유저명</b> : {uname}\n• <b>마킹 조건</b> : {c_name}\n• <b>베팅 판돈</b> : {amt} P (차감 완료)" if amt_str != "all" else f"🔥 <b>[예측 배팅 올인(ALL-IN) 폭격 발생]</b>\n\n• <b>유저명</b> : {uname}\n• <b>마킹 조건</b> : {c_name}\n• <b>베팅 판돈</b> : {amt} P [계정 전액 마킹 완료]",
+            parse_mode="HTML"
+        )
+        return
+
     if query.from_user.id not in ADMIN_LIST: return
     
     if data.startswith("set_room:"):
         r_id = data.split(":")[1]
         col_sessions.update_one({"admin_id": query.from_user.id}, {"$set": {"target_chat_id": r_id}}, upsert=True)
-        btns = [[InlineKeyboardButton("📋 커맨드 목록", callback_data=f"show_list:{r_id}"), InlineKeyboardButton("⏰ 스케줄 목록", callback_data=f"show_sched:{r_id}")]]
+        btns = [[InlineKeyboardButton("📋 커맨드 목록", callback_data="show_list:" + r_id), InlineKeyboardButton("⏰ 스케줄 목록", callback_data="show_sched:" + r_id)]]
         await query.edit_message_text(f"🎯 활성화됨 ID {r_id}\n이제 사진이나 메시지를 보내 저장하세요.", reply_markup=InlineKeyboardMarkup(btns))
     elif data.startswith("show_list:"):
         r_id = data.split(":")[1]
@@ -604,7 +733,6 @@ def sports_live():
             const wrapper = document.getElementById('container-wrapper');
             const windowWidth = window.innerWidth;
             const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-            
             if (isMobileDevice) {
                 const mobileCut = 58;
                 frame.style.transform = 'none';
@@ -633,105 +761,6 @@ def sports_live():
     </script>
 </body>
 </html>"""
-
-@flask_app.route('/game/snake')
-def snake_game():
-    return """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>뜌리 레트로 스네이크</title>
-    <style>
-        body { margin: 0; background: #111; color: #fff; text-align: center; font-family: sans-serif; overflow: hidden; }
-        canvas { background: #222; display: block; margin: 15px auto; border: 4px solid #444; max-width: 90vw; aspect-ratio: 1; }
-        #score { font-size: 24px; font-weight: bold; margin-top: 10px; color: #ffcc00; }
-        .pad-container { display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); gap: 8px; justify-content: center; margin-top: 10px; }
-        .pad-btn { background: #444; border: none; border-radius: 10px; color: #fff; font-size: 24px; font-weight: bold; display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; }
-        .pad-btn:active { background: #ffcc00; color: #111; }
-        .hide { visibility: hidden; }
-    </style>
-</head>
-<body>
-    <div id="score">SCORE: 0</div>
-    <canvas id="gameCanvas" width="400" height="400"></canvas>
-    <div class="pad-container">
-        <div class="pad-btn hide"></div>
-        <div class="pad-btn" id="btn-up">▲</div>
-        <div class="pad-btn hide"></div>
-        <div class="pad-btn" id="btn-left">◀</div>
-        <div class="pad-btn hide"></div>
-        <div class="pad-btn" id="btn-right">▶</div>
-        <div class="pad-btn hide"></div>
-        <div class="pad-btn" id="btn-down">▼</div>
-        <div class="pad-btn hide"></div>
-    </div>
-    <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const chat_id = urlParams.get('chat_id') || '';
-        const user_id = urlParams.get('user_id') || '';
-        const user_name = urlParams.get('user_name') || '유저';
-        const canvas = document.getElementById("gameCanvas"); const ctx = canvas.getContext("2d");
-        const grid = 20; let score = 0; let count = 0;
-        let snake = { x: 160, y: 160, dx: grid, dy: 0, cells: [{x: 160, y: 160}, {x: 140, y: 160}], maxCells: 2 };
-        let apple = { x: 320, y: 320 };
-        function getRandomInt(min, max) { return Math.floor(Math.random() * (max - min)) + min; }
-        function sendScore(finalScore) {
-            if(!chat_id || !user_id) return;
-            fetch('/game/submit_score', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chat_id, user_id: user_id, user_name: user_name, score: finalScore, game: 'snake' })
-            });
-        }
-        function resetGame() {
-            sendScore(score); score = 0; document.getElementById("score").innerText = "SCORE: " + score;
-            snake.x = 160; snake.y = 160; snake.cells = [{x: 160, y: 160}, {x: 140, y: 160}];
-            snake.maxCells = 2; snake.dx = grid; snake.dy = 0;
-            apple.x = getRandomInt(0, 20) * grid; apple.y = getRandomInt(0, 20) * grid;
-        }
-        function loop() {
-            requestAnimationFrame(loop); if (++count < 6) { return; } count = 0; ctx.clearRect(0,0,canvas.width,canvas.height);
-            snake.x += snake.dx; snake.y += snake.dy;
-            if (snake.x < 0 || snake.x >= canvas.width || snake.y < 0 || snake.y >= canvas.height) { resetGame(); }
-            snake.cells.unshift({x: snake.x, y: snake.y}); if (snake.cells.length > snake.maxCells) { snake.cells.pop(); }
-            ctx.fillStyle = '#ff4444'; ctx.fillRect(apple.x, apple.y, grid-1, grid-1); ctx.fillStyle = '#ffcc00';
-            snake.cells.forEach(function(cell, index) {
-                ctx.fillRect(cell.x, cell.y, grid-1, grid-1);  
-                if (cell.x === apple.x && cell.y === apple.y) {
-                    snake.maxCells++; score += 10; document.getElementById("score").innerText = "SCORE: " + score;
-                    apple.x = getRandomInt(0, 20) * grid; apple.y = getRandomInt(0, 20) * grid;
-                }
-                for (let i = index + 1; i < snake.cells.length; i++) { if (cell.x === snake.cells[i].x && cell.y === snake.cells[i].y) { resetGame(); } }
-            });
-        }
-        document.addEventListener('keydown', function(e) {
-            if (e.which === 37 && snake.dx === 0) { snake.dx = -grid; snake.dy = 0; }
-            else if (e.which === 38 && snake.dy === 0) { snake.dy = -grid; snake.dx = 0; }
-            else if (e.which === 39 && snake.dx === 0) { snake.dx = grid; snake.dy = 0; }
-            else if (e.which === 40 && snake.dy === 0) { snake.dy = grid; snake.dx = 0; }
-        });
-        document.getElementById('btn-up').addEventListener('touchstart', () => { if(snake.dy === 0) { snake.dy = -grid; snake.dx = 0; } });
-        document.getElementById('btn-down').addEventListener('touchstart', () => { if(snake.dy === 0) { snake.dy = grid; snake.dx = 0; } });
-        document.getElementById('btn-left').addEventListener('touchstart', () => { if(snake.dx === 0) { snake.dx = -grid; snake.dy = 0; } });
-        document.getElementById('btn-right').addEventListener('touchstart', () => { if(snake.dx === 0) { snake.dx = grid; snake.dy = 0; } });
-        document.getElementById('btn-up').addEventListener('mousedown', () => { if(snake.dy === 0) { snake.dy = -grid; snake.dx = 0; } });
-        document.getElementById('btn-down').addEventListener('mousedown', () => { if(snake.dy === 0) { snake.dy = grid; snake.dx = 0; } });
-        document.getElementById('btn-left').addEventListener('mousedown', () => { if(snake.dx === 0) { snake.dx = -grid; snake.dy = 0; } });
-        document.getElementById('btn-right').addEventListener('mousedown', () => { if(snake.dx === 0) { snake.dx = grid; snake.dy = 0; } });
-        window.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
-        requestAnimationFrame(loop);
-    </script>
-</body>
-</html>"""
-
-@flask_app.route('/game/submit_score', methods=['POST'])
-def submit_score():
-    data = request.json
-    if not data: return jsonify({"status": "error"}), 400
-    chat_id, user_id, user_name, score, game_type = str(data.get('chat_id')), str(data.get('user_id')), data.get('user_name', '유저'), int(data.get('score', 0)), data.get('game', 'brick')
-    col_scores.update_one({"chat_id": chat_id, "user_id": user_id, "game": game_type}, {"$set": {"user_name": user_name}, "$max": {"score": score}}, upsert=True)
-    return jsonify({"status": "success"}), 200
 
 def run_flask():
     flask_app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
