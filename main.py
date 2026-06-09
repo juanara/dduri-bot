@@ -1,4 +1,3 @@
-```python
 import os, re, threading, asyncio, logging, html, requests, time
 import urllib.parse
 import random
@@ -625,5 +624,3 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.ALL, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.run_polling()
-
-```
