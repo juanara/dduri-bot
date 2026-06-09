@@ -285,10 +285,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    if text.startswith(('/score', '!score', '/스코어', '!스코어')):
-        url_live = f"https://dduri-bot.onrender.com/sports/live"
-        keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
-        await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    # 🏆 [실시간 보유 포인트 순위표 복원 라인]
+    if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
+        point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
+        msg = "🏆 <b>우리 방 실시간 보유 포인트 TOP 10 순위표</b>\n\n"
+        if not point_records: msg += "→ 아직 등록된 포인트 기록이 없습니다.\n"
+        for idx, r in enumerate(point_records, 1):
+            msg += f" {idx}위 : {r['user_name']} - {r['score']} 포인트\n"
+        await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추')):
@@ -411,10 +415,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 3.0))
             return
 
-    # [관리자 전용 실시간 예측 배팅 제어 엔진 - 대소문자 무관, 대시 기호 가변 파싱 적용 완료판]
+    # [관리자 전용 실시간 예측 배팅 제어 엔진 - 마스터 치트 시트 1회성 비밀 연동판]
     if uid in ADMIN_LIST:
         if text.upper().startswith('/BET '):
-            # 🚨 대소문자 허용 및 띄어쓰기 없이 대시(-) 기호로 양 팀 분리 정밀 추출 정규식 개조
             match = re.search(r'/[bB][eE][tT]\s+([^-]+)-([^\s]+)\s*(\d*)', text)
             if not match:
                 return await update.message.reply_text("⚠️ 형식 오류!\n/bet A조건(배당)-B조건(배당) 최소포인트")
@@ -460,7 +463,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bet_board += f"💰 <b>최소 참여 금액</b> : {min_p} 포인트\n\n"
             bet_board += f"👉 원하는 조건을 아래 [딸깍] 선택한 후 판돈 버튼까지 순서대로 누르면 즉시 마킹됩니다!"
             
+            # 1. 일반 방 회원용 메인 배팅 전광판 송출
             await update.message.reply_text(bet_board, reply_markup=InlineKeyboardMarkup(btns), parse_mode="HTML")
+            
+            # 2. 💡 [관리자 전용 비밀 치트시트 답장 장치] 보호 플래그 결합 출력 (까먹음 방지)
+            guide_msg = f"🛠 <b>[뜌리봇 마스터 배팅 제어 가이드]</b>\n\n"
+            guide_msg += f"🔒 경기 시작 시 투표 차단 ➡️ <code>/bet마감</code>\n"
+            guide_msg += f"🎉 [{cond_a}] 적중 정산 ➡️ <code>/bet정산 A</code>\n"
+            guide_msg += f"🎉 [{cond_b}] 적중 정산 ➡️ <code>/bet정산 B</code>\n"
+            guide_msg += f"⛈ 우천/경기 취소 전액 환불 ➡️ <code>/bet적특</code>\n\n"
+            guide_msg += f"ℹ️ *본 가이드는 명령어를 입력한 관리자 계정에게만 매칭되어 1회성 답장으로 노출됩니다."
+            
+            await context.bot.send_message(chat_id=chat_id, text=guide_msg, reply_to_message_id=update.message.message_id, parse_mode="HTML", protect_content=True)
             return
 
         if text == "/bet마감":
