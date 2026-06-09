@@ -285,13 +285,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # 🏆 [실시간 보유 포인트 순위표 복원 라인]
-    if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
+    # 🏆 [실시간 보유 포인트 순위표 복원 라인 - uid 포함 버전]
+    if text.startswith(( '/랭킹', '!랭킹', '/ranking', '!ranking')):
         point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         msg = "🏆 <b>우리 방 실시간 보유 포인트 TOP 10 순위표</b>\n\n"
         if not point_records: msg += "→ 아직 등록된 포인트 기록이 없습니다.\n"
         for idx, r in enumerate(point_records, 1):
-            msg += f" {idx}위 : {r['user_name']} - {r['score']} 포인트\n"
+            # 여기서 r['user_id']를 추가해서 ID가 나오게 수정했습니다
+            msg += f" {idx}위 : {r['user_name']} (<code>{r['user_id']}</code>) - {r['score']} 포인트\n"
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
