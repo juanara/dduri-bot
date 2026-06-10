@@ -214,15 +214,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uname = update.effective_user.first_name
     
     # 📌 [뱅킹 모듈 위치 고정]
+    # 📌 [뱅킹 모듈 위치 고정]
     if uid in ADMIN_LIST:
         target_uid, change_amt, is_matched = None, 0, False
         text_clean = text.replace(',', '').strip()
+        
+        # 슬래시(/) 명령어 인식
         if text_clean.upper().startswith(('/지급', '/차감', '/점수차감', '/포인트지급')):
             parts = text_clean.split()
             if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
                 target_uid = parts[1]
                 change_amt = int(parts[2]) if ('지급' in parts[0]) else -int(parts[2])
                 is_matched = True
+        
+        # 기호(+/-) 명령어 인식
         elif text_clean.startswith(('+', '-', '—', '–')) and not text_clean.upper().startswith('+포인트'):
             sign = '+' if text_clean.startswith('+') else '-'
             stripped_text = re.sub(r'^.*?(\d+)\s+(\d+).*$', r'\1 \2', text_clean)
@@ -231,12 +236,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 target_uid = parts[0]
                 change_amt = int(parts[1]) if sign == '+' else -int(parts[1])
                 is_matched = True
+        
         if is_matched:
-            target_cid = col_sessions.find_one({"admin_id": uid})['target_chat_id'] if uid in ADMIN_LIST and update.effective_chat.type == "private" else str(chat_id)
-            if not target_cid or target_cid == "common": return await update.message.reply_text("⚠️ 대상 방을 /설정 으로 먼저 잡으세요.")
+            # [수정된 부분] 1:1 방일 때 세션에서 타겟 방 ID를 확실히 가져옴
+            if update.effective_chat.type == "private":
+                sess = col_sessions.find_one({"admin_id": uid})
+                target_cid = sess['target_chat_id'] if sess and 'target_chat_id' in sess else None
+                if not target_cid or target_cid == "common":
+                    return await update.message.reply_text("⚠️ /설정 명령어로 먼저 대상 방을 선택해주세요.")
+            else:
+                target_cid = str(chat_id)
+            
             u_rec = col_scores.find_one({"chat_id": target_cid, "user_id": str(target_uid), "game": "snake"})
             new_p = max(0, (u_rec['score'] if u_rec else 0) + change_amt)
-            col_scores.update_one({"chat_id": target_cid, "user_id": str(target_uid), "game": "snake"}, {"$set": {"score": new_p}, "$ondemand": {"user_name": f"유저({target_uid})"}}, upsert=True)
+            col_scores.update_one(
+                {"chat_id": target_cid, "user_id": str(target_uid), "game": "snake"}, 
+                {"$set": {"score": new_p}, "$setOnInsert": {"user_name": f"유저({target_uid})"}}, 
+                upsert=True
+            )
             return await update.message.reply_text(f"⚡️ <b>[포인트 조절 완료]</b>\n• 방ID: <code>{target_cid}</code>\n• 유저: <code>{target_uid}</code>\n• 변동: {change_amt:+,} P\n• 잔고: {new_p:,} P", parse_mode="HTML")
 
     if text.startswith(('/설정', '/리스트', '/삭제')) and uid in ADMIN_LIST and update.effective_chat.type == "private":
