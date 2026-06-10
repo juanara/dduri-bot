@@ -70,11 +70,9 @@ STADIUMS = {
     }
 }
 
-# 텔레톤 유저봇 및 캐시 초기화
 userbot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 media_group_cache = {}
 
-# 엔진 1 HTML 태그 밸런서
 def balance_html(text):
     if not text: return ""
     tags = ['b', 'i', 'u', 's', 'code', 'pre', 'blockquote']
@@ -97,7 +95,6 @@ async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return member.status in ["administrator", "creator"]
     except: return False
 
-# 지연 삭제 비동기 태스크 모듈
 async def delete_messages_delayed(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_ids: list, delay: float = 3.0):
     await asyncio.sleep(delay)
     for msg_id in message_ids:
@@ -106,7 +103,6 @@ async def delete_messages_delayed(context: ContextTypes.DEFAULT_TYPE, chat_id: i
         except Exception as e:
             logging.error(f"메시지 자동 삭제 실패 (ID: {msg_id}): {e}")
 
-# 엔진 2 출력 엔진
 async def send_custom_output(bot, chat_id, data, title=""):
     try:
         c_str = str(chat_id).strip()
@@ -128,7 +124,6 @@ async def send_custom_output(bot, chat_id, data, title=""):
     except Exception as e:
         logging.error(f"Output Error: {e}")
 
-# 엔진 3 스케줄러 루프
 async def custom_scheduler_loop(application):
     global box_event_rooms
     await asyncio.sleep(10)
@@ -165,7 +160,6 @@ async def custom_scheduler_loop(application):
             logging.error(f"Scheduler Loop Error: {e}")
         await asyncio.sleep(10)
 
-# 가변식 예약 마감 백그라운드 워커 모듈
 async def bet_reservation_worker(bot, chat_id, target_dt):
     try:
         now = datetime.now(KST)
@@ -180,7 +174,6 @@ async def bet_reservation_worker(bot, chat_id, target_dt):
     except Exception as e:
         logging.error(f"예약마감 작동 에러: {e}")
 
-# 엔진 4 저장 로직
 async def save_logic_with_delay(chat_id, context, m_id, message=None):
     if m_id: await asyncio.sleep(3.5)
     raw_html = media_group_cache[m_id]["caption"] if m_id else (message.caption_html or message.text_html or "")
@@ -203,7 +196,7 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
             data = {"chat_id": t_id, "name": name, "start_dt": start_dt, "end_dt": end_dt, "slot_start": slot_start, "slot_end": slot_end, "interval": interval, "next_run_ts": now_ts + interval * 60, "data": {"photos": (media_group_cache[m_id]["ids"] if m_id else []), "caption": balance_html(content)}}
             col_sched.insert_one(data); await context.bot.send_message(chat_id, f"⏰ {name} 예약 완료")
         elif "/personal" in cleaned_lower:
-            m = re.search(r"/personal\s+(\S+)\s*(.*)", cleaned, re.IGNORECASE | re.DOTALL)
+            m = re.search(r"/personal\s+(\S+)\s*(.*)", cleaned, re.DOTALL)
             if not m: raise ValueError("형식 오류")
             key, content = clean_tags(m.group(1)), m.group(2)
             msg, btn = content.rsplit("---", 1) if "---" in content else (content, "")
@@ -214,21 +207,44 @@ async def save_logic_with_delay(chat_id, context, m_id, message=None):
     except Exception as e: await context.bot.send_message(chat_id, f"❌ 에러 발생 {clean_tags(str(e))}")
     if m_id in media_group_cache: del media_group_cache[m_id]
 
-# 메인 핸들러
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global box_event_rooms, bet_timer_tasks
     if not update.message: return
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
     uname = update.effective_user.first_name
     
-    # 📌 관리자 설정/삭제 메뉴 입구
+    # 📌 [뱅킹 모듈 위치 고정]
+    if uid in ADMIN_LIST:
+        target_uid, change_amt, is_matched = None, 0, False
+        text_clean = text.replace(',', '').strip()
+        if text_clean.upper().startswith(('/지급', '/차감', '/점수차감', '/포인트지급')):
+            parts = text_clean.split()
+            if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                target_uid = parts[1]
+                change_amt = int(parts[2]) if ('지급' in parts[0]) else -int(parts[2])
+                is_matched = True
+        elif text_clean.startswith(('+', '-', '—', '–')) and not text_clean.upper().startswith('+포인트'):
+            sign = '+' if text_clean.startswith('+') else '-'
+            stripped_text = re.sub(r'^.*?(\d+)\s+(\d+).*$', r'\1 \2', text_clean)
+            parts = stripped_text.split()
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                target_uid = parts[0]
+                change_amt = int(parts[1]) if sign == '+' else -int(parts[1])
+                is_matched = True
+        if is_matched:
+            target_cid = col_sessions.find_one({"admin_id": uid})['target_chat_id'] if uid in ADMIN_LIST and update.effective_chat.type == "private" else str(chat_id)
+            if not target_cid or target_cid == "common": return await update.message.reply_text("⚠️ 대상 방을 /설정 으로 먼저 잡으세요.")
+            u_rec = col_scores.find_one({"chat_id": target_cid, "user_id": str(target_uid), "game": "snake"})
+            new_p = max(0, (u_rec['score'] if u_rec else 0) + change_amt)
+            col_scores.update_one({"chat_id": target_cid, "user_id": str(target_uid), "game": "snake"}, {"$set": {"score": new_p}, "$ondemand": {"user_name": f"유저({target_uid})"}}, upsert=True)
+            return await update.message.reply_text(f"⚡️ <b>[포인트 조절 완료]</b>\n• 방ID: <code>{target_cid}</code>\n• 유저: <code>{target_uid}</code>\n• 변동: {change_amt:+,} P\n• 잔고: {new_p:,} P", parse_mode="HTML")
+
     if text.startswith(('/설정', '/리스트', '/삭제')) and uid in ADMIN_LIST and update.effective_chat.type == "private":
         btns = [[InlineKeyboardButton("📁 공용 설정", callback_data="set_room:common")]]
         for r in list(col_members.find()):
             if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
         return await update.message.reply_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
 
-    # [사진 연동형 버퍼 세션 등록 구역]
     if uid in ADMIN_LIST and update.effective_chat.type == "private":
         raw_html = update.message.caption_html or update.message.text_html or ""
         if update.message.photo or "/personal" in raw_html.lower() or "/스케줄등록" in raw_html.lower():
@@ -241,33 +257,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else: await save_logic_with_delay(chat_id, context, None, update.message)
             return
 
-    # 💰 [관리자 마스터 전용 포인트 듀얼 수동 충전/차감 뱅킹 모듈]
-    if uid in ADMIN_LIST:
-        target_uid, change_amt, is_matched = None, 0, False
-        if text.upper().startswith(('/지급 ', '/차감 ', '/점수차감 ', '/포인트지급 ')):
-            parts = text.split()
-            if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
-                target_uid = parts[1]
-                change_amt = int(parts[2]) if (parts[0].upper() in ['/지급', '/포인트지급']) else -int(parts[2])
-                is_matched = True
-        elif text.startswith(('+', '-')) and not text.upper().startswith('+포인트'):
-            m_bank = re.match(r'^([+-])\s*(\d+)\s+(\d+)$', text)
-            if m_bank:
-                target_uid = m_bank.group(2)
-                amt_raw = int(m_bank.group(3))
-                change_amt = amt_raw if m_bank.group(1) == '+' else -amt_raw
-                is_matched = True
-                
-        if is_matched:
-            u_rec = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(target_uid), "game": "snake"})
-            old_p = u_rec['score'] if u_rec else 0
-            new_p = old_p + change_amt
-            if new_p < 0: new_p = 0
-            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(target_uid), "game": "snake"}, {"$set": {"score": new_p}, "$ondemand": {"user_name": f"유저({target_uid})"}}, upsert=True)
-            sign_tag = "💳 수동 지급 충전" if change_amt > 0 else "📉 수동 차감 회수"
-            return await update.message.reply_text(f"⚡️ <b>[포인트 수동 조절 완료]</b>\n\n• <b>유저 ID</b> : <code>{target_uid}</code>\n• <b>변동포인트</b> : {abs(change_amt):,} P ({sign_tag})\n• <b>최종 잔고</b> : {new_p:,} P", parse_mode="HTML")
-
-    # [유저조회, 동기화, 전체공지]
     if text.startswith('/유저조회'):
         if uid not in ADMIN_LIST or update.effective_chat.type != "private": return
         sess = col_sessions.find_one({"admin_id": uid})
@@ -301,7 +290,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(1.2)
             return
 
-    # 🏆 [랭킹] 괄호 uid 포함 버전
     if text.startswith(('/랭킹', '!랭킹', '/ranking', '!ranking')):
         point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         msg = "🏆 <b>실시간 포인트 TOP 10</b>\n\n"
@@ -310,172 +298,114 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
-    # 📊 [실시간 스포츠 스코어센터 진입 링크 구역]
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
         keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
         await update.message.reply_text("📣 <b>뜌리 라이브 스코어센터</b>\n\n아래 버튼을 누르면 기기별 크기에 최적화된 실시간 경기 상황판이 열립니다.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
-    # 🍱 [유저 전용 랜덤 추천 메뉴 복원 및 야메추 가동 엔진 구역]
     if text.startswith(('/점메추', '!점메추', '/저메추', '!저메추', '/커추', '!커추', '/야메추', '!야메추')):
         lunch_menu = ["김치찌개", "된장찌개", "부대찌개", "제육볶음", "돈까스", "짜장면", "짬뽕", "볶음밥", "탕수육", "김밥", "라면", "떡볶이", "순대", "순대국밥", "뼈해장국", "설렁탕", "갈비탕", "육개장", "비빔밥", "칼국수", "수제비", "물냉면", "비빔냉면", "우동", "초밥", "회덮밥", "파스타", "피자", "햄버거", "샌드위치"]
         dinner_menu = ["삼겹살", "돼지갈비", "소고기구이", "닭갈비", "치킨", "족발", "보쌈", "곱창구이", "막창구이", "곱창전골", "아구찜", "해물찜", "찜닭", "닭볶음탕", "감자탕", "샤브샤브", "스키야키", "양꼬치", "마라탕", "마라샹궈", "모듬회", "매운탕", "조개구이", "낙지볶음", "오징어볶음", "스테이크", "파스타", "연어회", "파전", "육회"]
         starbucks_menu = ["카페 아메리카노", "카페 라떼", "스타벅스 돌체 라떼", "카라멜 마키아또", "화이트 초콜릿 모카", "카페 모카", "바닐라 플랫 화이트", "에스프레소", "에스프레소 마키아또", "에스프레소 콘 파나", "자바 칩 프라푸치노", "초콜릿 크림 칩 프라푸치노", "제주 말차 크림 프라푸치노", "바닐라 크림 프라푸치노", "카라멜 프라푸치노", "피치 딸기 피지오", "쿨 라임 피지오", "블랙 티 레모네이드 피지오", "패션 탱고 티 레모네이드 피지오", "자몽 허니 블랙티", "유자 민트 티", "민트 블렌디드 티", "캐모마일 블렌드 티", "얼 그레이 티", "잉글리쉬 브렉퍼스트 티", "딸기 딜라이트 요거트 블렌디드", "망고 바나나 블렌디드", "에스프레소 프라푸치노", "더블 에스프레소 칩 프라푸치노", "제주 유기농 말차로 만든 라떼"]
         yasik_menu = ["후라이드 치킨", "매운 양념 치킨", "한방 온족발", "직화 불족발", "마늘 보쌈", "매콤 국물 닭발", "숯불 돼지껍데기", "찹쌀 탕수육", "직화 불막창", "돼지고기 짜글이", "페퍼로니 피자", "국물 떡볶이와 튀김", "한강 즉석 라면", "치즈 불닭", "오돌뼈와 주먹밥", "타코야끼", "계란말이와 골뱅이무침", "해물파전", "콘치즈와 모듬 소시지", "훈제 연어 샐러드"]
-        
         if "점메추" in text: await update.message.reply_text(f"☀️ 오늘 점심 메뉴는 <b>{random.choice(lunch_menu)}</b> 어떠세요?", parse_mode="HTML")
         elif "저메추" in text: await update.message.reply_text(f"🌙 오늘 저녁 메뉴는 <b>{random.choice(dinner_menu)}</b> 어떠세요?", parse_mode="HTML")
         elif "커추" in text: await update.message.reply_text(f"☕️ 스타벅스 추천 메뉴는 <b>{random.choice(starbucks_menu)}</b> 입니다.", parse_mode="HTML")
         elif "야메추" in text: await update.message.reply_text(f"🔥 밤을 잊은 그대에게! 오늘 야식 메뉴는 <b>{random.choice(yasik_menu)}</b> 강력 추천합니다!", parse_mode="HTML")
         return
 
-    # 🎲 [유저 전용 /대박, /중박, /소박 포인트 롤링 도박 구역 + 일일 10회 제한]
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
         user_msg_id = update.message.message_id
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
         current_rolling = user_record.get("rolling_point", 0) if user_record else 0
-        
-        now_kst = datetime.now(KST)
-        today_str = now_kst.strftime("%Y%m%d")
-        last_gamble_date = user_record.get("last_gamble_date", "") if user_record else ""
-        
+        now_kst = datetime.now(KST); today_str = now_kst.strftime("%Y%m%d"); last_gamble_date = user_record.get("last_gamble_date", "") if user_record else ""
         cost, win_chance, win_reward, gamble_type, count_field = 0, 0.0, 0, "", ""
         if text.startswith(('/대박', '!대박')): cost, win_chance, win_reward, gamble_type, count_field = 2000, 0.40, 4000, "대박", "today_daebak_count"
         elif text.startswith(('/중박', '!중박')): cost, win_chance, win_reward, gamble_type, count_field = 1000, 0.45, 2000, "중박", "today_jungbak_count"
         elif text.startswith(('/소박', '!소박')): cost, win_chance, win_reward, gamble_type, count_field = 500, 0.45, 1000, "소박", "today_sobak_count"
-
         if gamble_type:
             current_count = user_record.get(count_field, 0) if user_record and last_gamble_date == today_str else 0
             if current_count >= 10:
                 err_limit = await update.message.reply_text(f"🛑 {uname}님, [{gamble_type}] 배팅은 하루 최대 10회까지만 참여 가능합니다.")
                 if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_limit.message_id], 3.0))
                 return
-
             if current_score < cost:
                 err_msg = await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score:,} P")
                 if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
                 return
-                
-            current_score -= cost
-            rolling_bonus = int(cost * 0.01)
-            new_rolling = current_rolling + rolling_bonus
-            new_count = current_count + 1
-            
+            current_score -= cost; rolling_bonus = int(cost * 0.01); new_rolling = current_rolling + rolling_bonus; new_count = current_count + 1
             if random.random() < win_chance:
                 current_score += win_reward
                 msg_text = f"🔥 <b>{uname}님 {gamble_type} 성공! ({new_count}/10)</b>\n배당 2배인 {win_reward:,} 포인트를 획득했습니다!\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
             else:
                 msg_text = f"💀 <b>{uname}님 쪽박입니다. ({new_count}/10)</b>\n배팅포인트 {cost:,} P를 잃었습니다.\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
-                
-            col_scores.update_one(
-                {"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, 
-                {"$set": {"user_name": uname, "score": current_score, "rolling_point": new_rolling, "last_gamble_date": today_str, count_field: new_count}}, 
-                upsert=True
-            )
+            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": current_score, "rolling_point": new_rolling, "last_gamble_date": today_str, count_field: new_count}}, upsert=True)
             res_msg = await update.message.reply_text(msg_text, parse_mode="HTML")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
             return
 
-    # 📅 [개조형 출석체크 엔진]
     if text.startswith(('/출첵', '!출첵', '/출석체크', '!출석체크')):
-        user_msg_id = update.message.message_id
-        user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
-        current_score = user_record["score"] if user_record else 0
-        now_kst = datetime.now(KST)
-        today_str = now_kst.strftime("%Y%m%d")
-        yesterday_str = (now_kst - timedelta(days=1)).strftime("%Y%m%d")
-        last_check = user_record.get("last_check_date", "") if user_record else ""
-        current_streak = user_record.get("check_streak", 0) if user_record else 0
-        
+        user_msg_id = update.message.message_id; user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        current_score = user_record["score"] if user_record else 0; now_kst = datetime.now(KST); today_str = now_kst.strftime("%Y%m%d"); yesterday_str = (now_kst - timedelta(days=1)).strftime("%Y%m%d"); last_check = user_record.get("last_check_date", "") if user_record else ""; current_streak = user_record.get("check_streak", 0) if user_record else 0
         if last_check == today_str:
             err_msg = await update.message.reply_text(f"❌ {uname}님은 오늘 이미 출석체크를 완료하셨습니다. (현재 연속 {current_streak}일차)")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
             return
-        new_streak = current_streak + 1 if last_check == yesterday_str else 1
-        bonus_msg, base_reward = "", 1000
-        if new_streak == 30:
-            base_reward += 30000; new_streak = 0
-            bonus_msg = "\n🔥 <b>[대박] 30일 연속 출석 달성 보너스 +30,000 포인트 폭격 지급!</b>"
-        new_score = current_score + base_reward
-        col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": new_score, "last_check_date": today_str, "check_streak": new_streak}}, upsert=True)
-        streak_brief = f"현재 연속 {new_streak}일차" if new_streak > 0 else "30일 미션 클리어 후 초기화"
-        res_msg = await update.message.reply_text(f"✅ {uname}님 출석 완료! {base_reward}P 지급 완료! ({streak_brief}){bonus_msg}\n💰 보유 잔고: {new_score} P", parse_mode="HTML")
+        new_streak = current_streak + 1 if last_check == yesterday_str else 1; bonus_msg, base_reward = "", 1000
+        if new_streak == 30: base_reward += 30000; new_streak = 0; bonus_msg = "\n🔥 <b>[대박] 30일 연속 출석 달성 보너스 +30,000 포인트 폭격 지급!</b>"
+        new_score = current_score + base_reward; col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": new_score, "last_check_date": today_str, "check_streak": new_streak}}, upsert=True)
+        res_msg = await update.message.reply_text(f"✅ {uname}님 출석 완료! {base_reward}P 지급 완료! ({new_streak}일차){bonus_msg}\n💰 보유 잔고: {new_score} P", parse_mode="HTML")
         if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
         return
 
-    # [수급 기능 2] 연합상자 + 일일 5회 수령 제한
     if text.startswith(('/가족방최고', '!가족방최고')):
-        user_msg_id = update.message.message_id
-        r_chat_id = str(chat_id)
-        today_str = datetime.now(KST).strftime("%Y%m%d")
+        user_msg_id = update.message.message_id; r_chat_id = str(chat_id); today_str = datetime.now(KST).strftime("%Y%m%d")
         if not box_event_rooms.get(r_chat_id, False):
             err_msg = await update.message.reply_text("💨 상자 없음!")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
             return
-        user_record = col_scores.find_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"})
-        today_box_count = user_record.get("today_box_count", 0) if user_record and user_record.get("last_box_date") == today_str else 0
-        
+        user_record = col_scores.find_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}); today_box_count = user_record.get("today_box_count", 0) if user_record and user_record.get("last_box_date") == today_str else 0
         if today_box_count >= 5:
-            limit_msg = await update.message.reply_text(f"🛑 {uname}님, 연합상자는 하루 최대 5번까지만 주워 먹을 수 있습니다. 선착순 기회가 다음 사람에게 넘어갑니다.")
+            limit_msg = await update.message.reply_text(f"🛑 {uname}님, 연합상자는 하루 최대 5번까지만 주워 먹을 수 있습니다.")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, limit_msg.message_id], 3.0))
             return
-            
-        box_event_rooms[r_chat_id] = False
-        box_bonus = random.randint(300, 2000)
-        new_box_count = today_box_count + 1
-        
-        col_scores.update_one(
-            {"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}, 
-            {"$inc": {"score": box_bonus}, "$set": {"user_name": uname, "last_box_date": today_str, "today_box_count": new_box_count}}, 
-            upsert=True
-        )
-        await update.message.reply_text(f"🎉 {uname}(<code>{uid}</code>) 선착순 상자 획득 완료! ({new_box_count}/5)\n💰 보상 +{box_bonus}P가 실시간 지급되었습니다.", parse_mode="HTML")
+        box_event_rooms[r_chat_id] = False; box_bonus = random.randint(300, 2000); new_box_count = today_box_count + 1
+        col_scores.update_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}, {"$inc": {"score": box_bonus}, "$set": {"user_name": uname, "last_box_date": today_str, "today_box_count": new_box_count}}, upsert=True)
+        await update.message.reply_text(f"🎉 {uname}(<code>{uid}</code>) 상자 획득! +{box_bonus}P 지급. ({new_box_count}/5)", parse_mode="HTML")
         return
 
-    # [관리자 전용 제어 - 덮어쓰기 기능 이식형 실시간 자동 예약 마감 엔진]
     if uid in ADMIN_LIST and text.upper().startswith('/BET예약마감'):
         time_digit = re.sub(r'[^0-9]', '', text)
-        if len(time_digit) != 12:
-            return await update.message.reply_text("⚠️ 규격 오류! 년월일시분 12자리 숫자로 적어주세요.\n예시: /BET예약마감202606101900")
+        if len(time_digit) != 12: return await update.message.reply_text("⚠️ 규격 오류! 년월일시분 12자리 숫자로 적어주세요.\n예시: /BET예약마감202606101900")
         try:
             target_dt = datetime.strptime(time_digit, "%Y%m%d%H%M").replace(tzinfo=KST)
-            if target_dt <= datetime.now(KST):
-                return await update.message.reply_text("⚠️ 과거 시간은 마감 예약 지정이 불가능합니다.")
+            if target_dt <= datetime.now(KST): return await update.message.reply_text("⚠️ 과거 시간은 마감 예약 지정이 불가능합니다.")
             c_room_str = str(chat_id)
-            if c_room_str in bet_timer_tasks and not bet_timer_tasks[c_room_str].done():
-                bet_timer_tasks[c_room_str].cancel()
+            if c_room_str in bet_timer_tasks and not bet_timer_tasks[c_room_str].done(): bet_timer_tasks[c_room_str].cancel()
             bet_timer_tasks[c_room_str] = asyncio.create_task(bet_reservation_worker(context.bot, chat_id, target_dt))
-            return await update.message.reply_text(f"⏰ <b>[배팅판 자동 마감 예약 완료]</b>\n\n• <b>마감 설정 시각</b>: {target_dt.strftime('%Y-%m-%d %H:%M')} (KST)\n• 본 경기 시간에 도달하면 유저 버튼이 실시간 동결 모드로 자동 전환됩니다. (재입력 시 시간 덮어쓰기 완료)", parse_mode="HTML")
-        except Exception as e:
-            return await update.message.reply_text(f"❌ 날짜 파싱 오류: {e}")
+            return await update.message.reply_text(f"⏰ <b>[배팅판 자동 마감 예약 완료]</b>\n\n• <b>마감 설정 시각</b>: {target_dt.strftime('%Y-%m-%d %H:%M')} (KST)", parse_mode="HTML")
+        except Exception as e: return await update.message.reply_text(f"❌ 날짜 파싱 오류: {e}")
 
-    # [관리자 예측 배팅 개설 엔진]
     if uid in ADMIN_LIST and text.upper().startswith('/BET '):
         match = re.search(r'/[bB][eE][tT]\s+([^-]+)-([^\s]+)\s*(\d*)', text)
         if not match: return await update.message.reply_text("⚠️ /BET A(배당)-B(배당) 판돈")
         cond_a, cond_b, min_p = match.group(1).strip(), match.group(2).strip(), int(match.group(3)) if match.group(3) else 100
         rate_a = float(re.search(r'\(([\d.]+)\)', cond_a).group(1)) if re.search(r'\(([\d.]+)\)', cond_a) else 1.0
         rate_b = float(re.search(r'\(([\d.]+)\)', cond_b).group(1)) if re.search(r'\(([\d.]+)\)', cond_b) else 1.0
-        for ob in list(col_user_bets.find({"chat_id": str(chat_id), "amount": {"$exists": True}})):
-            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(ob['user_id']), "game": "snake"}, {"$inc": {"score": ob['amount']}}, upsert=True)
+        for ob in list(col_user_bets.find({"chat_id": str(chat_id), "amount": {"$exists": True}})): col_scores.update_one({"chat_id": str(chat_id), "user_id": str(ob['user_id']), "game": "snake"}, {"$inc": {"score": ob['amount']}}, upsert=True)
         col_bets.delete_many({"chat_id": str(chat_id)}); col_user_bets.delete_many({"chat_id": str(chat_id)})
         col_bets.insert_one({"chat_id": str(chat_id), "status": "open", "min_p": min_p, "A_name": cond_a, "A_rate": rate_a, "B_name": cond_b, "B_rate": rate_b})
         btns = [[InlineKeyboardButton(f"🅰️ {cond_a}", callback_data="select_team:A"), InlineKeyboardButton(f"🅱️ {cond_b}", callback_data="select_team:B")]]
         await update.message.reply_text(f"🔥 <b>[배팅 오픈]</b>\n{cond_a} vs {cond_b}", reply_markup=InlineKeyboardMarkup(btns), parse_mode="HTML")
-        guide = "🛠 <b>[관리자 제어]</b>\n마감: /BET마감\n정산: /BET정산 A(또는 B)\n적특: /BET적특\n타이머마감: /BET예약마감YYYYMMDDHHMM"
-        await context.bot.send_message(chat_id, guide, reply_to_message_id=update.message.message_id, parse_mode="HTML", protect_content=True)
         return
 
-    # [배팅 수동 즉시 마감 - 대소문자 허용]
     if uid in ADMIN_LIST and text.upper() in ["/BET마감", "/BET마감 "]:
-        res = col_bets.update_one({"chat_id": str(chat_id)}, {"$set": {"status": "closed"}})
-        c_room_str = str(chat_id)
+        res = col_bets.update_one({"chat_id": str(chat_id)}, {"$set": {"status": "closed"}}); c_room_str = str(chat_id)
         if c_room_str in bet_timer_tasks: bet_timer_tasks[c_room_str].cancel()
-        return await update.message.reply_text("🔒 <b>예측 배팅이 즉시 수동 마감되었습니다.</b>\n경기가 시작되어 마킹 신호가 전액 동결됩니다.", parse_mode="HTML") if res.modified_count > 0 else await update.message.reply_text("⚠️ 현재 활성화된 배팅판이 존재하지 않습니다.")
+        return await update.message.reply_text("🔒 <b>예측 배팅이 즉시 수동 마감되었습니다.</b>", parse_mode="HTML") if res.modified_count > 0 else await update.message.reply_text("⚠️ 현재 활성화된 배팅판이 존재하지 않습니다.")
 
-    # [배팅 결과 정산 확정 - 대소문자 허용]
     if uid in ADMIN_LIST and text.upper().startswith(('/BET정산 ', '!BET정산 ')):
         ans = text.split()[-1].upper()
         if ans not in ['A', 'B']: return await update.message.reply_text("⚠️ 결과를 A 혹은 B 로 명확히 지정하세요.")
@@ -485,29 +415,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winners = list(col_user_bets.find({"chat_id": str(chat_id), "choice": ans, "amount": {"$exists": True}}))
         report = f"🎉 <b>[예측 배팅 정산 브리핑]</b>\n🎯 적중 조건: {win_name}\n📊 배당률: {win_rate}배\n\n"
         for w in winners:
-            p_win = int(w['amount'] * win_rate)
-            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(w['user_id']), "game": "snake"}, {"$inc": {"score": p_win}}, upsert=True)
+            p_win = int(w['amount'] * win_rate); col_scores.update_one({"chat_id": str(chat_id), "user_id": str(w['user_id']), "game": "snake"}, {"$inc": {"score": p_win}}, upsert=True)
             report += f"• {w['user_name']}님: +{p_win:,} P 적중 완료\n"
         col_bets.delete_many({"chat_id": str(chat_id)}); col_user_bets.delete_many({"chat_id": str(chat_id)})
         c_room_str = str(chat_id)
         if c_room_str in bet_timer_tasks: bet_timer_tasks[c_room_str].cancel()
         return await update.message.reply_text(report if winners else f"📋 정산 확정 완료!\n해당 조건[{win_name}]에 배팅 적중한 유저가 없습니다.", parse_mode="HTML")
 
-    # [배팅 경기 취소 적특 처리 - 대소문자 허용]
     if uid in ADMIN_LIST and text.upper() in ["/BET적특", "/BET적특 "]:
         game_bet = col_bets.find_one({"chat_id": str(chat_id)})
         if not game_bet: return await update.message.reply_text("⚠️ 취소 처리할 배팅판이 없습니다.")
         all_participants = list(col_user_bets.find({"chat_id": str(chat_id), "amount": {"$exists": True}}))
         refund_report = "⛈ <b>[경기 취소 적중특례 적특 발동]</b>\n참여 유저분들의 베팅 원금이 전액 무결점 롤백 환불 반환되었습니다.\n\n"
-        for p in all_participants:
-            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(p['user_id']), "game": "snake"}, {"$inc": {"score": p['amount']}}, upsert=True)
-            refund_report += f"• {p['user_name']}님: {p['amount']:,} P 반환\n"
+        for p in all_participants: col_scores.update_one({"chat_id": str(chat_id), "user_id": str(p['user_id']), "game": "snake"}, {"$inc": {"score": p['amount']}}, upsert=True); refund_report += f"• {p['user_name']}님: {p['amount']:,} P 반환\n"
         col_bets.delete_many({"chat_id": str(chat_id)}); col_user_bets.delete_many({"chat_id": str(chat_id)})
         c_room_str = str(chat_id)
         if c_room_str in bet_timer_tasks: bet_timer_tasks[c_room_str].cancel()
         return await update.message.reply_text(refund_report if all_participants else "📋 적특 완료! 반환할 배팅 내역 청소 완료.", parse_mode="HTML")
 
-    # 🌦 [날씨 예보 모듈 - 오후 15시 및 18시 저격 필터 엔진]
     if text.startswith(('/날씨', '!날씨')):
         if not WEATHER_API_KEY: return await update.message.reply_text("⚠️ 날씨 API 키가 설정되지 않았습니다.")
         status_msg = await update.message.reply_text("🛰 <b>한·일 전 구장 예보 데이터 취합 중...</b>", parse_mode="HTML")
@@ -520,22 +445,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     url = f"http://api.openweathermap.org/data/2.5/forecast?lat={coord['lat']}&lon={coord['lon']}&appid={WEATHER_API_KEY}&units=metric"
                     res = requests.get(url, timeout=8).json()
                     if str(res.get("cod")) != "200": msg += f"• {s_name}: 데이터 유실\n"; continue
-                    
                     timeline_forecasts, today_str = [], datetime.now(KST).strftime("%Y-%m-%d")
                     dome_tag = " [돔]" if "돔" in s_name else ""
-                    
                     for item in res.get("list", []):
                         dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
                         if dt_kst.strftime("%Y-%m-%d") == today_str and dt_kst.hour in [15, 18]:
                             sky_ko = w_ko.get(item['weather'][0]['main'].lower(), item['weather'][0]['main'].lower())
                             timeline_forecasts.append(f"{dt_kst.hour}시({sky_ko},{round(item['main']['temp'], 1)}℃)")
-                            
-                    if timeline_forecasts: 
-                        msg += f"• <b>{s_name}{dome_tag}</b>\n  └ {', '.join(timeline_forecasts)}\n"
-                    else: 
-                        msg += f"• <b>{s_name}{dome_tag}</b>\n  └ ☀️맑음 기상 안정\n"
-                except: 
-                    msg += f"• {s_name}: 연동 지연\n"
+                    if timeline_forecasts: msg += f"• <b>{s_name}{dome_tag}</b>\n  └ {', '.join(timeline_forecasts)}\n"
+                    else: msg += f"• <b>{s_name}{dome_tag}</b>\n  └ ☀️맑음 기상 안정\n"
+                except: msg += f"• {s_name}: 연동 지연\n"
             msg += "\n"
         await status_msg.delete(); await update.message.reply_text(msg, parse_mode="HTML")
         return
@@ -547,13 +466,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = (room.get("local_commands", {}).get(cmd) if room else None) or main_data.get("commands", {}).get(cmd)
         if target: await send_custom_output(context.bot, chat_id, target)
 
-# 콜백 핸들러
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; data = query.data
     uid, chat_id, uname = query.from_user.id, query.message.chat_id, query.from_user.first_name
     if data.startswith("select_team:"):
-        choice = data.split(":")[1]
-        game_bet = col_bets.find_one({"chat_id": str(chat_id)})
+        choice = data.split(":")[1]; game_bet = col_bets.find_one({"chat_id": str(chat_id)})
         if not game_bet or game_bet.get("status") == "closed": return await query.answer("⚠️ 마감되었거나 종료된 예측 배팅판입니다.", show_alert=True)
         already_done = col_user_bets.find_one({"chat_id": str(chat_id), "user_id": str(uid), "amount": {"$exists": True}})
         if already_done: return await query.answer("❌ 이미 배팅이 마킹 처리되어 수정할 수 없습니다.", show_alert=True)
@@ -564,60 +481,39 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("💰 1,000 P", callback_data="amt:1000"), InlineKeyboardButton("💰 5,000 P", callback_data="amt:5000"), InlineKeyboardButton("💰 10,000 P", callback_data="amt:10000")],
             [InlineKeyboardButton("💥 보유 전액 [올인]", callback_data="amt:all")]
         ]
-        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btns))
-        await query.answer("👉 팀 선택 완료. 판돈 단추를 누르세요!")
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(btns)); await query.answer("👉 팀 선택 완료. 판돈 단추를 누르세요!")
     elif data.startswith("amt:"):
-        amt_str = data.split(":")[1]
-        game_bet = col_bets.find_one({"chat_id": str(chat_id)})
+        amt_str = data.split(":")[1]; game_bet = col_bets.find_one({"chat_id": str(chat_id)})
         if not game_bet or game_bet.get("status") == "closed": return await query.answer("⚠️ 마감되었습니다.", show_alert=True)
         sess_bet = col_user_bets.find_one({"chat_id": str(chat_id), "user_id": str(uid)})
         if not sess_bet or "choice" not in sess_bet: return await query.answer("☝ 팀 단추를 먼저 눌러주세요.", show_alert=True)
         if "amount" in sess_bet: return await query.answer("❌ 이미 참여 완료된 배팅판입니다.", show_alert=True)
-        u_rec = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
-        c_score = u_rec['score'] if u_rec else 0
+        u_rec = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}); c_score = u_rec['score'] if u_rec else 0
         amt = c_score if amt_str == "all" else int(amt_str)
         if amt < game_bet['min_p']: return await query.answer(f"⚠️ 최소 배팅금액은 {game_bet['min_p']}P 입니다.", show_alert=True)
         if c_score < amt: return await query.answer("❌ 잔액이 부족합니다!", show_alert=True)
-        col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$inc": {"score": -amt}})
-        col_user_bets.update_one({"chat_id": str(chat_id), "user_id": str(uid)}, {"$set": {"amount": amt}})
-        await query.answer(f"🎉 배팅 접수 완료!", show_alert=True)
-        c_name = game_bet['A_name'] if sess_bet['choice'] == 'A' else game_bet['B_name']
+        col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$inc": {"score": -amt}}); col_user_bets.update_one({"chat_id": str(chat_id), "user_id": str(uid)}, {"$set": {"amount": amt}})
+        await query.answer(f"🎉 배팅 접수 완료!", show_alert=True); c_name = game_bet['A_name'] if sess_bet['choice'] == 'A' else game_bet['B_name']
         await context.bot.send_message(chat_id=chat_id, text=f"🎯 <b>[예측 배팅 마킹 성공]</b>\n\n• 유저명 : {uname}\n• 마킹 조건 : {c_name}\n• 베팅 판돈 : {amt} P", parse_mode="HTML")
     elif query.from_user.id in ADMIN_LIST and data.startswith("set_room:"):
-        r_id = data.split(":")[1]
-        col_sessions.update_one({"admin_id": query.from_user.id}, {"$set": {"target_chat_id": r_id}}, upsert=True)
+        r_id = data.split(":")[1]; col_sessions.update_one({"admin_id": query.from_user.id}, {"$set": {"target_chat_id": r_id}}, upsert=True)
         btns = [[InlineKeyboardButton("📋 커맨드 목록", callback_data=f"show_list:{r_id}"), InlineKeyboardButton("⏰ 스케줄 목록", callback_data=f"show_sched:{r_id}")]]
         await query.edit_message_text(f"🎯 활성화됨 ID {r_id}\n이제 사진이나 메시지를 보내 저장하세요.", reply_markup=InlineKeyboardMarkup(btns))
     elif query.from_user.id in ADMIN_LIST and data.startswith("show_list:"):
-        r_id = data.split(":")[1]
-        main_data = col_main.find_one({"id": "bot_main_data"}) or {}
-        target = main_data.get("commands", {}) if r_id == "common" else (col_members.find_one({"chat_id": r_id}).get("local_commands", {}) if col_members.find_one({"chat_id": r_id}) else {})
-        btns = [[InlineKeyboardButton(f"🗑 {k}", callback_data=f"del:{r_id}:{k}")] for k in target.keys()]
-        btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
+        r_id = data.split(":")[1]; main_data = col_main.find_one({"id": "bot_main_data"}) or {}; target = main_data.get("commands", {}) if r_id == "common" else (col_members.find_one({"chat_id": r_id}).get("local_commands", {}) if col_members.find_one({"chat_id": r_id}) else {})
+        btns = [[InlineKeyboardButton(f"🗑 {k}", callback_data=f"del:{r_id}:{k}")] for k in target.keys()]; btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
         if btns and btns[0]: await query.edit_message_text("🗑 삭제할 커맨드 선택:", reply_markup=InlineKeyboardMarkup(btns))
     elif query.from_user.id in ADMIN_LIST and data.startswith("show_sched:"):
-        r_id = data.split(":")[1]
-        btns = [[InlineKeyboardButton(f"🗑 {s['name']}", callback_data=f"dsched:{s['_id']}")] for s in list(col_sched.find({"chat_id": r_id}))]
-        btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
+        r_id = data.split(":")[1]; btns = [[InlineKeyboardButton(f"🗑 {s['name']}", callback_data=f"dsched:{s['_id']}")] for s in list(col_sched.find({"chat_id": r_id}))]; btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
         if btns and btns[0]: await query.edit_message_text("⏰ 스케줄 목록", reply_markup=InlineKeyboardMarkup(btns))
     elif query.from_user.id in ADMIN_LIST and data.startswith("del:"):
-        _, r_id, k = data.split(":", 2)
-        if r_id == "common": col_main.update_one({"id": "bot_main_data"}, {"$unset": {f"commands.{k}": ""}})
-        else: col_members.update_one({"chat_id": r_id}, {"$unset": {f"local_commands.{k}": ""}})
-        await query.answer("삭제 완료!")
-        main_data = col_main.find_one({"id": "bot_main_data"}) or {}
-        target = main_data.get("commands", {}) if r_id == "common" else (col_members.find_one({"chat_id": r_id}).get("local_commands", {}) if col_members.find_one({"chat_id": r_id}) else {})
-        btns = [[InlineKeyboardButton(f"🗑 {key}", callback_data=f"del:{r_id}:{key}")] for key in target.keys()]
-        btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
+        _, r_id, k = data.split(":", 2); col_main.update_one({"id": "bot_main_data"}, {"$unset": {f"commands.{k}": ""}}) if r_id == "common" else col_members.update_one({"chat_id": r_id}, {"$unset": {f"local_commands.{k}": ""}})
+        await query.answer("삭제 완료!"); main_data = col_main.find_one({"id": "bot_main_data"}) or {}; target = main_data.get("commands", {}) if r_id == "common" else (col_members.find_one({"chat_id": r_id}).get("local_commands", {}) if col_members.find_one({"chat_id": r_id}) else {})
+        btns = [[InlineKeyboardButton(f"🗑 {key}", callback_data=f"del:{r_id}:{key}")] for key in target.keys()]; btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
         await query.edit_message_text("🗑 삭제할 커맨드 선택:", reply_markup=InlineKeyboardMarkup(btns))
     elif query.from_user.id in ADMIN_LIST and data.startswith("dsched:"):
-        _, s_id = data.split(":", 1)
-        sched_item = col_sched.find_one({"_id": ObjectId(s_id)})
-        r_id = sched_item['chat_id'] if sched_item else "common"
-        col_sched.delete_one({"_id": ObjectId(s_id)})
-        await query.answer("삭제 완료")
-        btns = [[InlineKeyboardButton(f"🗑 {s['name']}", callback_data=f"dsched:{s['_id']}")] for s in list(col_sched.find({"chat_id": r_id}))]
-        btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
+        _, s_id = data.split(":", 1); sched_item = col_sched.find_one({"_id": ObjectId(s_id)}); r_id = sched_item['chat_id'] if sched_item else "common"; col_sched.delete_one({"_id": ObjectId(s_id)})
+        await query.answer("삭제 완료"); btns = [[InlineKeyboardButton(f"🗑 {s['name']}", callback_data=f"dsched:{s['_id']}")] for s in list(col_sched.find({"chat_id": r_id}))]; btns.append([InlineKeyboardButton("🔙 뒤로", callback_data="back_to_rooms")])
         await query.edit_message_text("⏰ 스케줄 목록", reply_markup=InlineKeyboardMarkup(btns))
     elif data == "back_to_rooms":
         btns = [[InlineKeyboardButton("📁 공용 설정", callback_data="set_room:common")]]
@@ -625,73 +521,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "room_name" in r: btns.append([InlineKeyboardButton(f"🏠 {r['room_name']}", callback_data=f"set_room:{r['chat_id']}")])
         await query.edit_message_text("📂 관리할 방 선택:", reply_markup=InlineKeyboardMarkup(btns))
 
-# Flask 웹 서버 및 엔드포인트 구역
 flask_app = Flask(__name__)
-
 @flask_app.route('/')
 def home(): return "OK", 200
-
 @flask_app.route('/sports/live')
 def sports_live():
     return """<!DOCTYPE html>
 <html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>뜌리 실시간 스코어센터</title>
-    <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #151922; }
-        #container-wrapper { width: 100%; height: 100%; position: relative; overflow: hidden; }
-        iframe { width: 100%; border: none; position: absolute; top: 0; left: 0; transform-origin: top left; }
-    </style>
-</head>
-<body>
-    <div id="container-wrapper">
-        <iframe id="live-frame" src="https://www.flashscore.co.kr/"></iframe>
-    </div>
-    <script>
-        function adjustLayout() {
-            const frame = document.getElementById('live-frame');
-            const wrapper = document.getElementById('container-wrapper');
-            const windowWidth = window.innerWidth;
-            const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-            if (isMobileDevice) {
-                const mobileCut = 58;
-                frame.style.transform = 'none';
-                frame.style.width = '100%';
-                frame.style.marginTop = `-${mobileCut}px`;
-                frame.style.height = `calc(100% + ${mobileCut}px)`;
-            } else {
-                const pcCut = 120;
-                const baseWidth = 1200;
-                if (windowWidth < baseWidth) {
-                    const scale = windowWidth / baseWidth;
-                    frame.style.width = baseWidth + 'px';
-                    frame.style.height = ((wrapper.clientHeight / scale) + pcCut) + 'px';
-                    frame.style.transform = `scale(${scale})`;
-                    frame.style.marginTop = `-${pcCut}px`;
-                } else {
-                    frame.style.width = '100%';
-                    frame.style.height = `calc(100% + ${pcCut}px)`;
-                    frame.style.transform = 'none';
-                    frame.style.marginTop = `-${pcCut}px`;
-                }
-            }
-        }
-        window.addEventListener('load', adjustLayout);
-        window.addEventListener('resize', adjustLayout);
-    </script>
-</body>
-</html>"""
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>뜌리 실시간 스코어센터</title><style>body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #151922; } #container-wrapper { width: 100%; height: 100%; position: relative; overflow: hidden; } iframe { width: 100%; border: none; position: absolute; top: 0; left: 0; transform-origin: top left; }</style></head>
+<body><div id="container-wrapper"><iframe id="live-frame" src="https://www.flashscore.co.kr/"></iframe></div><script>function adjustLayout() { const frame = document.getElementById('live-frame'); const wrapper = document.getElementById('container-wrapper'); const windowWidth = window.innerWidth; const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0); if (isMobileDevice) { const mobileCut = 58; frame.style.transform = 'none'; frame.style.width = '100%'; frame.style.marginTop = `-${mobileCut}px`; frame.style.height = `calc(100% + ${mobileCut}px)`; } else { const pcCut = 120; const baseWidth = 1200; if (windowWidth < baseWidth) { const scale = windowWidth / baseWidth; frame.style.width = baseWidth + 'px'; frame.style.height = ((wrapper.clientHeight / scale) + pcCut) + 'px'; frame.style.transform = `scale(${scale})`; frame.style.marginTop = `-${pcCut}px`; } else { frame.style.width = '100%'; frame.style.height = `calc(100% + ${pcCut}px)`; frame.style.transform = 'none'; frame.style.marginTop = `-${pcCut}px`; } } } window.addEventListener('load', adjustLayout); window.addEventListener('resize', adjustLayout);</script></body></html>"""
 
-def run_flask():
-    flask_app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+def run_flask(): flask_app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
 
-# 비동기 인스턴스 정석 초기화 모듈
 async def post_init(application):
-    loop = asyncio.get_event_loop()
-    loop.create_task(userbot.start())
-    loop.create_task(custom_scheduler_loop(application))
+    loop = asyncio.get_event_loop(); loop.create_task(userbot.start()); loop.create_task(custom_scheduler_loop(application))
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
