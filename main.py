@@ -212,7 +212,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
     uname = update.effective_user.first_name
-    
+    # 📌 [관리자 전용: 전 유저 도박 횟수 당장 강제 리셋]
+    if uid in ADMIN_LIST and text == "/도박초기화":
+        col_scores.update_many({}, {"$set": {"today_daebak_count": 0, "today_jungbak_count": 0, "today_sobak_count": 0, "last_gamble_date": ""}})
+        return await update.message.reply_text("✅ <b>[DB 청소 완료]</b>\n전 유저의 도박 횟수가 지금 당장 강제 0으로 리셋되었습니다!", parse_mode="HTML")
     # 📌 [뱅킹 모듈 위치 고정]
     if uid in ADMIN_LIST:
         target_uid, change_amt, is_matched = None, 0, False
