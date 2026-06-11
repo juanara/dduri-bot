@@ -214,7 +214,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uname = update.effective_user.first_name
     
     # 📌 [뱅킹 모듈 위치 고정]
-    # 📌 [뱅킹 모듈 위치 고정]
     if uid in ADMIN_LIST:
         target_uid, change_amt, is_matched = None, 0, False
         text_clean = text.replace(',', '').strip()
@@ -332,33 +331,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif "야메추" in text: await update.message.reply_text(f"🔥 밤을 잊은 그대에게! 오늘 야식 메뉴는 <b>{random.choice(yasik_menu)}</b> 강력 추천합니다!", parse_mode="HTML")
         return
 
+    # [여기가 이번에 완벽 패치된 도박 구역입니다]
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
         user_msg_id = update.message.message_id
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record["score"] if user_record else 0
         current_rolling = user_record.get("rolling_point", 0) if user_record else 0
-        now_kst = datetime.now(KST); today_str = now_kst.strftime("%Y%m%d"); last_gamble_date = user_record.get("last_gamble_date", "") if user_record else ""
+        
+        now_kst = datetime.now(KST)
+        today_str = now_kst.strftime("%Y%m%d")
+        last_gamble_date = user_record.get("last_gamble_date", "") if user_record else ""
+        is_new_day = (last_gamble_date != today_str)
+        
         cost, win_chance, win_reward, gamble_type, count_field = 0, 0.0, 0, "", ""
         if text.startswith(('/대박', '!대박')): cost, win_chance, win_reward, gamble_type, count_field = 2000, 0.40, 4000, "대박", "today_daebak_count"
         elif text.startswith(('/중박', '!중박')): cost, win_chance, win_reward, gamble_type, count_field = 1000, 0.45, 2000, "중박", "today_jungbak_count"
         elif text.startswith(('/소박', '!소박')): cost, win_chance, win_reward, gamble_type, count_field = 500, 0.45, 1000, "소박", "today_sobak_count"
+
         if gamble_type:
-            current_count = user_record.get(count_field, 0) if user_record and last_gamble_date == today_str else 0
+            current_count = 0 if is_new_day else user_record.get(count_field, 0)
+            
             if current_count >= 10:
                 err_limit = await update.message.reply_text(f"🛑 {uname}님, [{gamble_type}] 배팅은 하루 최대 10회까지만 참여 가능합니다.")
                 if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_limit.message_id], 3.0))
                 return
+
             if current_score < cost:
                 err_msg = await update.message.reply_text(f"❌ 보유 포인트가 부족하여 {gamble_type} 배팅에 참여할 수 없습니다. 최소 {cost} 포인트가 필요합니다. 현재 보유 포인트: {current_score:,} P")
                 if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
                 return
-            current_score -= cost; rolling_bonus = int(cost * 0.01); new_rolling = current_rolling + rolling_bonus; new_count = current_count + 1
+                
+            current_score -= cost
+            rolling_bonus = int(cost * 0.01)
+            new_rolling = current_rolling + rolling_bonus
+            new_count = current_count + 1
+            
             if random.random() < win_chance:
                 current_score += win_reward
                 msg_text = f"🔥 <b>{uname}님 {gamble_type} 성공! ({new_count}/10)</b>\n배당 2배인 {win_reward:,} 포인트를 획득했습니다!\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
             else:
                 msg_text = f"💀 <b>{uname}님 쪽박입니다. ({new_count}/10)</b>\n배팅포인트 {cost:,} P를 잃었습니다.\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
-            col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": current_score, "rolling_point": new_rolling, "last_gamble_date": today_str, count_field: new_count}}, upsert=True)
+                
+            update_data = {
+                "user_name": uname, 
+                "score": current_score, 
+                "rolling_point": new_rolling, 
+                "last_gamble_date": today_str, 
+                count_field: new_count
+            }
+            
+            if is_new_day:
+                if gamble_type != "대박": update_data["today_daebak_count"] = 0
+                if gamble_type != "중박": update_data["today_jungbak_count"] = 0
+                if gamble_type != "소박": update_data["today_sobak_count"] = 0
+                
+            col_scores.update_one(
+                {"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, 
+                {"$set": update_data}, 
+                upsert=True
+            )
+            
             res_msg = await update.message.reply_text(msg_text, parse_mode="HTML")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
             return
