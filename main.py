@@ -317,6 +317,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
+    # 💰 [유저 전용: 내 포인트 및 잔고 조회]
+    if text.startswith(('/내포인트', '!내포인트', '/잔고', '!잔고', '/포인트', '!포인트')):
+        user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        current_score = user_record["score"] if user_record else 0
+        return await update.message.reply_text(f"💳 <b>{uname}</b>님의 현재 잔고: <b>{current_score:,} P</b>", parse_mode="HTML")       
+        
+
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
         keyboard = [[InlineKeyboardButton(text="📊 실시간 스포츠 스코어센터 진입", url=url_live)]]
