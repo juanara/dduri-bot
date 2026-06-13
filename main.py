@@ -86,6 +86,14 @@ def balance_html(text):
 def clean_tags(t):
     return re.sub(r'<[^>]+>', '', str(t)).strip()
 
+# 💡 [신규 엔진] 칭호 강화 이펙트 발생기
+def get_e_tag(e_lv):
+    if e_lv <= 0: return ""
+    elif e_lv <= 2: return f"<b>[+{e_lv}]</b> "
+    elif e_lv <= 4: return f"🔷<code>[+{e_lv}]</code> "
+    elif e_lv <= 8: return f"🔥<b>【+{e_lv}】</b>🔥 "
+    else: return f"👑<b>꧁+{e_lv}꧂</b>👑 "
+
 async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid in ADMIN_LIST: return True
@@ -212,24 +220,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     uid, text, chat_id = update.effective_user.id, (update.message.text or "").strip(), update.effective_chat.id
     uname = update.effective_user.first_name
+    
     # 📌 [관리자 전용: 전 유저 도박 횟수 당장 강제 리셋]
     if uid in ADMIN_LIST and text == "/도박초기화":
         col_scores.update_many({}, {"$set": {"today_daebak_count": 0, "today_jungbak_count": 0, "today_sobak_count": 0, "last_gamble_date": ""}})
         return await update.message.reply_text("✅ <b>[DB 청소 완료]</b>\n전 유저의 도박 횟수가 지금 당장 강제 0으로 리셋되었습니다!", parse_mode="HTML")
+        
     # 📌 [뱅킹 모듈 위치 고정]
     if uid in ADMIN_LIST:
         target_uid, change_amt, is_matched = None, 0, False
         text_clean = text.replace(',', '').strip()
         
-        # 슬래시(/) 명령어 인식
         if text_clean.upper().startswith(('/지급', '/차감', '/점수차감', '/포인트지급')):
             parts = text_clean.split()
             if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
                 target_uid = parts[1]
                 change_amt = int(parts[2]) if ('지급' in parts[0]) else -int(parts[2])
                 is_matched = True
-        
-        # 기호(+/-) 명령어 인식
+                
         elif text_clean.startswith(('+', '-', '—', '–')) and not text_clean.upper().startswith('+포인트'):
             sign = '+' if text_clean.startswith('+') else '-'
             stripped_text = re.sub(r'^.*?(\d+)\s+(\d+).*$', r'\1 \2', text_clean)
@@ -240,7 +248,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 is_matched = True
         
         if is_matched:
-            # [수정된 부분] 1:1 방일 때 세션에서 타겟 방 ID를 확실히 가져옴
             if update.effective_chat.type == "private":
                 sess = col_sessions.find_one({"admin_id": uid})
                 target_cid = sess['target_chat_id'] if sess and 'target_chat_id' in sess else None
@@ -313,16 +320,69 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         point_records = list(col_scores.find({"chat_id": str(chat_id), "game": "snake"}).sort("score", -1).limit(10))
         msg = "🏆 <b>실시간 포인트 TOP 10</b>\n\n"
         for idx, r in enumerate(point_records, 1):
-            msg += f" {idx}위 : {r['user_name']} (<code>{r['user_id']}</code>) - {r['score']}P\n"
+            e_lv = r.get("enhancement_level", 0)
+            e_tag = get_e_tag(e_lv)
+            msg += f" {idx}위 : {e_tag}{r.get('user_name', '유저')} (<code>{r.get('user_id', '')}</code>) - {r.get('score', 0):,}P\n"
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     # 💰 [유저 전용: 내 포인트 및 잔고 조회]
     if text.startswith(('/내포인트', '!내포인트', '/잔고', '!잔고', '/포인트', '!포인트')):
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
-        current_score = user_record["score"] if user_record else 0
-        return await update.message.reply_text(f"💳 <b>{uname}</b>님의 현재 잔고: <b>{current_score:,} P</b>", parse_mode="HTML")       
+        current_score = user_record.get("score", 0) if user_record else 0
+        e_lv = user_record.get("enhancement_level", 0) if user_record else 0
+        e_tag = get_e_tag(e_lv)
+        return await update.message.reply_text(f"💳 <b>{e_tag}{uname}</b>님의 현재 잔고: <b>{current_score:,} P</b>", parse_mode="HTML")
+
+    # 🌟 [유저 전용: 칭호 강화 시스템 (10단계 확률/비용 커스텀 적용)]
+    if text.startswith(('/강화', '!강화')):
+        user_msg_id = update.message.message_id
+        user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        if not user_record:
+            err = await update.message.reply_text("⚠️ 포인트 데이터가 없습니다. 출석체크 등으로 포인트를 먼저 획득하세요.")
+            if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err.message_id], 3.0))
+            return
         
+        c_score = user_record.get("score", 0)
+        e_lv = user_record.get("enhancement_level", 0)
+        
+        if e_lv >= 10:
+            err = await update.message.reply_text(f"🛑 <b>[MAX 레벨 도달]</b>\n이미 최고 레벨(+10)입니다. 더 이상 강화할 수 없습니다.", parse_mode="HTML")
+            if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err.message_id], 3.0))
+            return
+            
+        cost, prob = 0, 0.0
+        # 형님이 요청하신 확률 및 비용 밸런스 매핑
+        if e_lv == 0: cost, prob = 5000, 0.45     # 0 -> 1강 (45%)
+        elif e_lv == 1: cost, prob = 5000, 0.45   # 1 -> 2강 (45%)
+        elif e_lv == 2: cost, prob = 5000, 0.40   # 2 -> 3강 (40%)
+        elif e_lv == 3: cost, prob = 5000, 0.40   # 3 -> 4강 (40%)
+        elif e_lv == 4: cost, prob = 5000, 0.35   # 4 -> 5강 (35%)
+        elif e_lv == 5: cost, prob = 10000, 0.20  # 5 -> 6강 (20%)
+        elif e_lv == 6: cost, prob = 10000, 0.20  # 6 -> 7강 (20%)
+        elif e_lv == 7: cost, prob = 10000, 0.10  # 7 -> 8강 (10%)
+        elif e_lv == 8: cost, prob = 10000, 0.10  # 8 -> 9강 (10%)
+        elif e_lv == 9: cost, prob = 30000, 0.02  # 9 -> 10강 (2%)
+        
+        if c_score < cost:
+            err = await update.message.reply_text(f"❌ <b>강화 실패 (포인트 부족)</b>\n현재 [+{e_lv}] -> [+{e_lv+1}] 시도에는 {cost:,} P가 필요합니다.\n💳 잔고: {c_score:,} P", parse_mode="HTML")
+            if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err.message_id], 3.0))
+            return
+            
+        # 필수 액션 구간 (소모량 텍스트 제거 완료)
+        c_score -= cost
+        
+        if random.random() < prob:
+            e_lv += 1
+            e_tag_new = get_e_tag(e_lv).strip()
+            msg = f"🌟 <b>강화 성공!!!</b> 🌟\n\n🎉 <b>{uname}</b>님의 칭호가 {e_tag_new}(으)로 강화되었습니다!\n(모든 획득 포인트 {e_lv}% 영구 증가)\n💳 잔고: {c_score:,} P"
+        else:
+            e_tag_old = get_e_tag(e_lv).strip() if e_lv > 0 else "[+0]"
+            msg = f"💥 <b>강화 실패...</b> 💥\n\n아깝게 실패했습니다. 수치는 {e_tag_old}(으)로 유지됩니다.\n💳 잔고: {c_score:,} P"
+            
+        col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"score": c_score, "enhancement_level": e_lv, "user_name": uname}}, upsert=True)
+        res = await update.message.reply_text(msg, parse_mode="HTML")
+        return
 
     if text.startswith(('/score', '!score', '/스코어', '!스코어')):
         url_live = f"https://dduri-bot.onrender.com/sports/live"
@@ -341,12 +401,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif "야메추" in text: await update.message.reply_text(f"🔥 밤을 잊은 그대에게! 오늘 야식 메뉴는 <b>{random.choice(yasik_menu)}</b> 강력 추천합니다!", parse_mode="HTML")
         return
 
-    # [여기가 이번에 완벽 패치된 도박 구역입니다]
+    # 🎲 [유저 전용 /대박, /중박, /소박 포인트 롤링 도박 구역 + 강화 보너스 적용]
     if text.startswith(('/대박', '!대박', '/중박', '!중박', '/소박', '!소박')):
         user_msg_id = update.message.message_id
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
-        current_score = user_record["score"] if user_record else 0
+        current_score = user_record.get("score", 0) if user_record else 0
         current_rolling = user_record.get("rolling_point", 0) if user_record else 0
+        e_lv = user_record.get("enhancement_level", 0) if user_record else 0
+        e_tag = get_e_tag(e_lv)
+        bonus_pct = e_lv * 0.01
         
         now_kst = datetime.now(KST)
         today_str = now_kst.strftime("%Y%m%d")
@@ -358,11 +421,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text.startswith(('/중박', '!중박')): cost, win_chance, win_reward, gamble_type, count_field = 1000, 0.45, 2000, "중박", "today_jungbak_count"
         elif text.startswith(('/소박', '!소박')): cost, win_chance, win_reward, gamble_type, count_field = 500, 0.45, 1000, "소박", "today_sobak_count"
 
+        if uid in [916176217, 7530073279]: 
+            win_chance = win_chance * 0.8
+        
         if gamble_type:
             current_count = 0 if is_new_day else user_record.get(count_field, 0)
             
             if current_count >= 10:
-                err_limit = await update.message.reply_text(f"🛑 {uname}님, [{gamble_type}] 배팅은 하루 최대 10회까지만 참여 가능합니다.")
+                err_limit = await update.message.reply_text(f"🛑 {e_tag}{uname}님, [{gamble_type}] 배팅은 하루 최대 10회까지만 참여 가능합니다.")
                 if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_limit.message_id], 3.0))
                 return
 
@@ -377,10 +443,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             new_count = current_count + 1
             
             if random.random() < win_chance:
-                current_score += win_reward
-                msg_text = f"🔥 <b>{uname}님 {gamble_type} 성공! ({new_count}/10)</b>\n배당 2배인 {win_reward:,} 포인트를 획득했습니다!\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
+                actual_win = int(win_reward * (1 + bonus_pct))
+                b_gained = actual_win - win_reward
+                current_score += actual_win
+                b_txt = f"\n🌟 <b>강화 보너스: +{b_gained:,} P</b>" if b_gained > 0 else ""
+                msg_text = f"🔥 <b>{e_tag}{uname}님 {gamble_type} 성공! ({new_count}/10)</b>\n배당금 {actual_win:,} 포인트를 획득했습니다!{b_txt}\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
             else:
-                msg_text = f"💀 <b>{uname}님 쪽박입니다. ({new_count}/10)</b>\n배팅포인트 {cost:,} P를 잃었습니다.\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
+                msg_text = f"💀 <b>{e_tag}{uname}님 쪽박입니다. ({new_count}/10)</b>\n배팅포인트 {cost:,} P를 잃었습니다.\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
                 
             update_data = {
                 "user_name": uname, 
@@ -405,34 +474,72 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
             return
 
+    # 📅 [개조형 출석체크 엔진 + 강화 보너스 적용]
     if text.startswith(('/출첵', '!출첵', '/출석체크', '!출석체크')):
-        user_msg_id = update.message.message_id; user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
-        current_score = user_record["score"] if user_record else 0; now_kst = datetime.now(KST); today_str = now_kst.strftime("%Y%m%d"); yesterday_str = (now_kst - timedelta(days=1)).strftime("%Y%m%d"); last_check = user_record.get("last_check_date", "") if user_record else ""; current_streak = user_record.get("check_streak", 0) if user_record else 0
+        user_msg_id = update.message.message_id
+        user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
+        current_score = user_record.get("score", 0) if user_record else 0
+        e_lv = user_record.get("enhancement_level", 0) if user_record else 0
+        e_tag = get_e_tag(e_lv)
+        bonus_pct = e_lv * 0.01
+        
+        now_kst = datetime.now(KST)
+        today_str = now_kst.strftime("%Y%m%d")
+        yesterday_str = (now_kst - timedelta(days=1)).strftime("%Y%m%d")
+        last_check = user_record.get("last_check_date", "") if user_record else ""
+        current_streak = user_record.get("check_streak", 0) if user_record else 0
+        
         if last_check == today_str:
-            err_msg = await update.message.reply_text(f"❌ {uname}님은 오늘 이미 출석체크를 완료하셨습니다. (현재 연속 {current_streak}일차)")
+            err_msg = await update.message.reply_text(f"❌ {e_tag}{uname}님은 오늘 이미 출석체크를 완료하셨습니다. (현재 연속 {current_streak}일차)")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
             return
-        new_streak = current_streak + 1 if last_check == yesterday_str else 1; bonus_msg, base_reward = "", 1000
-        if new_streak == 30: base_reward += 30000; new_streak = 0; bonus_msg = "\n🔥 <b>[대박] 30일 연속 출석 달성 보너스 +30,000 포인트 폭격 지급!</b>"
-        new_score = current_score + base_reward; col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": new_score, "last_check_date": today_str, "check_streak": new_streak}}, upsert=True)
-        res_msg = await update.message.reply_text(f"✅ {uname}님 출석 완료! {base_reward}P 지급 완료! ({new_streak}일차){bonus_msg}\n💰 보유 잔고: {new_score} P", parse_mode="HTML")
+            
+        new_streak = current_streak + 1 if last_check == yesterday_str else 1
+        bonus_msg, base_reward = "", 1000
+        if new_streak == 30: 
+            base_reward += 30000; new_streak = 0; bonus_msg = "\n🔥 <b>[대박] 30일 연속 출석 달성 보너스 +30,000 포인트 폭격 지급!</b>"
+            
+        actual_reward = int(base_reward * (1 + bonus_pct))
+        b_gained = actual_reward - base_reward
+        new_score = current_score + actual_reward
+        
+        col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": new_score, "last_check_date": today_str, "check_streak": new_streak}}, upsert=True)
+        b_txt = f" (🌟강화보너스 +{b_gained:,}P)" if b_gained > 0 else ""
+        res_msg = await update.message.reply_text(f"✅ {e_tag}{uname}님 출석 완료! {actual_reward:,}P 지급 완료! ({new_streak}일차){b_txt}{bonus_msg}\n💰 보유 잔고: {new_score:,} P", parse_mode="HTML")
         if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
         return
 
+    # 📦 [수급 기능 2] 연합상자 + 강화 보너스 적용
     if text.startswith(('/가족방최고', '!가족방최고')):
-        user_msg_id = update.message.message_id; r_chat_id = str(chat_id); today_str = datetime.now(KST).strftime("%Y%m%d")
+        user_msg_id = update.message.message_id
+        r_chat_id = str(chat_id)
+        today_str = datetime.now(KST).strftime("%Y%m%d")
+        
         if not box_event_rooms.get(r_chat_id, False):
             err_msg = await update.message.reply_text("💨 상자 없음!")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
             return
-        user_record = col_scores.find_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}); today_box_count = user_record.get("today_box_count", 0) if user_record and user_record.get("last_box_date") == today_str else 0
+            
+        user_record = col_scores.find_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"})
+        e_lv = user_record.get("enhancement_level", 0) if user_record else 0
+        e_tag = get_e_tag(e_lv)
+        bonus_pct = e_lv * 0.01
+        
+        today_box_count = user_record.get("today_box_count", 0) if user_record and user_record.get("last_box_date") == today_str else 0
         if today_box_count >= 5:
-            limit_msg = await update.message.reply_text(f"🛑 {uname}님, 연합상자는 하루 최대 5번까지만 주워 먹을 수 있습니다.")
+            limit_msg = await update.message.reply_text(f"🛑 {e_tag}{uname}님, 연합상자는 하루 최대 5번까지만 주워 먹을 수 있습니다.")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, limit_msg.message_id], 3.0))
             return
-        box_event_rooms[r_chat_id] = False; box_bonus = random.randint(300, 2000); new_box_count = today_box_count + 1
-        col_scores.update_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}, {"$inc": {"score": box_bonus}, "$set": {"user_name": uname, "last_box_date": today_str, "today_box_count": new_box_count}}, upsert=True)
-        await update.message.reply_text(f"🎉 {uname}(<code>{uid}</code>) 상자 획득! +{box_bonus}P 지급. ({new_box_count}/5)", parse_mode="HTML")
+            
+        box_event_rooms[r_chat_id] = False
+        box_bonus = random.randint(300, 2000)
+        actual_bonus = int(box_bonus * (1 + bonus_pct))
+        b_gained = actual_bonus - box_bonus
+        new_box_count = today_box_count + 1
+        
+        col_scores.update_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}, {"$inc": {"score": actual_bonus}, "$set": {"user_name": uname, "last_box_date": today_str, "today_box_count": new_box_count}}, upsert=True)
+        b_txt = f" (🌟강화보너스 +{b_gained:,}P)" if b_gained > 0 else ""
+        await update.message.reply_text(f"🎉 {e_tag}{uname}(<code>{uid}</code>) 상자 획득! +{actual_bonus:,}P 지급{b_txt}. ({new_box_count}/5)", parse_mode="HTML")
         return
 
     if uid in ADMIN_LIST and text.upper().startswith('/BET예약마감'):
@@ -474,8 +581,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         winners = list(col_user_bets.find({"chat_id": str(chat_id), "choice": ans, "amount": {"$exists": True}}))
         report = f"🎉 <b>[예측 배팅 정산 브리핑]</b>\n🎯 적중 조건: {win_name}\n📊 배당률: {win_rate}배\n\n"
         for w in winners:
-            p_win = int(w['amount'] * win_rate); col_scores.update_one({"chat_id": str(chat_id), "user_id": str(w['user_id']), "game": "snake"}, {"$inc": {"score": p_win}}, upsert=True)
-            report += f"• {w['user_name']}님: +{p_win:,} P 적중 완료\n"
+            w_uid = str(w['user_id'])
+            u_rec_w = col_scores.find_one({"chat_id": str(chat_id), "user_id": w_uid, "game": "snake"})
+            e_lv = u_rec_w.get("enhancement_level", 0) if u_rec_w else 0
+            e_tag = get_e_tag(e_lv)
+            bonus_pct = e_lv * 0.01
+
+            base_win = int(w['amount'] * win_rate)
+            actual_win = int(base_win * (1 + bonus_pct))
+            b_gained = actual_win - base_win
+            
+            col_scores.update_one({"chat_id": str(chat_id), "user_id": w_uid, "game": "snake"}, {"$inc": {"score": actual_win}}, upsert=True)
+            b_txt = f" (+🌟{b_gained:,})" if b_gained > 0 else ""
+            report += f"• {e_tag}{w['user_name']}님: +{actual_win:,} P 적중 완료{b_txt}\n"
+            
         col_bets.delete_many({"chat_id": str(chat_id)}); col_user_bets.delete_many({"chat_id": str(chat_id)})
         c_room_str = str(chat_id)
         if c_room_str in bet_timer_tasks: bet_timer_tasks[c_room_str].cancel()
