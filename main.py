@@ -86,13 +86,24 @@ def balance_html(text):
 def clean_tags(t):
     return re.sub(r'<[^>]+>', '', str(t)).strip()
 
-# 💡 [신규 엔진] 칭호 강화 이펙트 발생기
+# 💡 [신규 엔진] 칭호 강화 이펙트 발생기 (프리미엄 이모지 완벽 패치)
 def get_e_tag(e_lv):
-    if e_lv <= 0: return ""
-    elif e_lv <= 2: return f"<b>[+{e_lv}]</b> "
-    elif e_lv <= 4: return f"🔷<code>[+{e_lv}]</code> "
-    elif e_lv <= 8: return f"🔥<b>【+{e_lv}】</b>🔥 "
-    else: return f"👑<b>꧁+{e_lv}꧂</b>👑 "
+    if e_lv <= 0: 
+        return ""
+    elif e_lv <= 2: 
+        return f"<b>[+{e_lv}]</b> "
+    elif e_lv <= 4: 
+        return f"🔷<code>[+{e_lv}]</code> "
+    elif e_lv == 5: 
+        return f"🔥<b>【+{e_lv}】</b>🔥 "
+    elif e_lv == 6: 
+        return f"<tg-emoji emoji-id=\"5402406965252989103\">🔮</tg-emoji><code><b>[+{e_lv}]</b></code> "
+    elif e_lv <= 8: 
+        return f"<tg-emoji emoji-id=\"5431776939465516694\">💎</tg-emoji><b>【+{e_lv}】</b> "
+    elif e_lv == 9: 
+        return f"<tg-emoji emoji-id=\"5433758796289685818\">👑</tg-emoji><b>꧁+{e_lv}꧂</b> "
+    else: 
+        return f"<tg-emoji emoji-id=\"6122954627567588952\">✨</tg-emoji><b><u>꧁༺+{e_lv}༻꧂</u></b><tg-emoji emoji-id=\"6122954627567588952\">✨</tg-emoji> "
 
 async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -148,7 +159,7 @@ async def custom_scheduler_loop(application):
                     r_chat_id = str(r['chat_id'])
                     box_event_rooms[r_chat_id] = True
                     try:
-                        await bot.send_message(chat_id=int(r_chat_id), text="📦 <b>연합상자가 출현했습니다!</b>\n /가족방최고 혹은 !가족방최고 를 먼저 쳐주신 1분에게 랜덤 포인트를 지급합니다!", parse_mode="HTML")
+                        await bot.send_message(chat_id=int(r_chat_id), text="<tg-emoji emoji-id=\"5406929905118106968\">📦</tg-emoji> <b>연합상자가 출현했습니다!</b>\n /가족방최고 혹은 !가족방최고 를 먼저 쳐주신 1분에게 랜덤 포인트를 지급합니다!", parse_mode="HTML")
                     except: pass
             for s in list(col_sched.find()):
                 if not (s['start_dt'] <= now_date <= s['end_dt']):
@@ -322,7 +333,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for idx, r in enumerate(point_records, 1):
             e_lv = r.get("enhancement_level", 0)
             e_tag = get_e_tag(e_lv)
-            msg += f" {idx}위 : {e_tag}{r.get('user_name', '유저')} (<code>{r.get('user_id', '')}</code>) - {r.get('score', 0):,}P\n"
+            # 랭킹에서 개인 고유 ID 부분 삭제, 닉네임만 표시되도록 수정
+            msg += f" {idx}위 : {e_tag}{r.get('user_name', '유저')} - {r.get('score', 0):,}P\n"
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
