@@ -343,8 +343,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_record = col_scores.find_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"})
         current_score = user_record.get("score", 0) if user_record else 0
         e_lv = user_record.get("enhancement_level", 0) if user_record else 0
-        e_tag = get_e_tag(e_lv)
-        return await update.message.reply_text(f"💳 <b>{e_tag}{uname}</b>님의 현재 잔고: <b>{current_score:,} P</b>", parse_mode="HTML")
+        
+        # 0강일 때도 [+0]이 보이도록 강제 처리
+        e_tag_display = get_e_tag(e_lv).strip() if e_lv > 0 else "<b>[+0]</b>"
+        
+        msg = (
+            f"💳 {e_tag_display} <b>{uname}</b>님의 계좌 상태\n\n"
+            f"💰 <b>현재 잔고:</b> {current_score:,} P\n"
+            f"🎖 <b>강화 칭호:</b> +{e_lv} (모든 획득 포인트 +{e_lv}% 보너스)\n"
+        )
+        return await update.message.reply_text(msg, parse_mode="HTML")
 
     # 🌟 [유저 전용: 칭호 강화 시스템 (10단계 확률/비용 커스텀 적용)]
     if text.startswith(('/강화', '!강화')):
