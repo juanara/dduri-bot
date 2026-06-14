@@ -371,10 +371,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             e_lv = r.get("enhancement_level", 0)
             e_tag = get_e_tag(e_lv)
             
-            # 6강 이상이면 닉네임 진하게 출력
-            d_name = f"<b>{r.get('user_name', '유저')}</b>" if e_lv >= 6 else r.get('user_name', '유저')
+            # [방어 코드] 닉네임 내의 특수문자(<, >, & 등)를 HTML 안전 문자로 변환
+            raw_name = r.get('user_name', '유저')
+            safe_name = html.escape(raw_name) 
+            
+            # [조건부 진하게] 6강 이상 시 <b> 태그 적용
+            d_name = f"<b>{safe_name}</b>" if e_lv >= 6 else safe_name
+            
             msg += f" {idx}위 : {e_tag}{d_name} - {r.get('score', 0):,}P\n"
-        await update.message.reply_text(msg, parse_mode="HTML")
+        
+        # [방어 코드] 메시지가 너무 길거나 태그 오류로 HTML 전송 실패 시, parse_mode 없이 plain text로 재시도
+        try:
+            await update.message.reply_text(msg, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"HTML 파싱 에러 발생, Plain Text로 전송 시도: {e}")
+            await update.message.reply_text(clean_tags(msg)) # 태그 다 떼고 전송
         return
 
     # 💰 [유저 전용: 내 포인트 및 잔고 조회]
