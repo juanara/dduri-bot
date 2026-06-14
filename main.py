@@ -384,7 +384,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif e_lv == 8: cost, prob = 10000, 0.10  # 8 -> 9강 (10%)
         elif e_lv == 9: cost, prob = 30000, 0.02  # 9 -> 10강 (2%)
         # 👑 [특별 혜택: 지정 유저 강화 확률 1.5배 비밀 버프]
-        if uid in [8472713103]:
+        if uid in [7380985690]:
             prob = prob * 1.5
         
         if c_score < cost:
@@ -447,7 +447,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if uid in [916176217, 7530073279]: 
             win_chance = win_chance * 0.8
 
-        if uid in [8472713103]:
+        if uid in [7380985690]:
             win_chance = win_chance * 1.5
         
         if gamble_type:
