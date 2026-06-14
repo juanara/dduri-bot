@@ -86,24 +86,61 @@ def balance_html(text):
 def clean_tags(t):
     return re.sub(r'<[^>]+>', '', str(t)).strip()
 
-# 💡 [신규 엔진] 칭호 강화 이펙트 발생기 (프리미엄 이모지 완벽 패치)
+# 💡 [신규 엔진] 숫자/기호 프리미엄 이모지 변환기 (7강 이상 전용)
+def get_num_emoji(text):
+    emoji_map = {
+        '+': '6206427772231881680',
+        '0': '6206046812927693478',
+        '1': '6208774722751041537',
+        '2': '6208469659813941908',
+        '3': '6208545800994165306',
+        '4': '6206366337019678906',
+        '5': '6206061815248458530',
+        '6': '6208748330177007798',
+        '7': '6208316076078404760',
+        '8': '6208747050276754444',
+        '9': '6208737932061184858'
+    }
+    res = ""
+    for char in text:
+        if char in emoji_map:
+            res += f'<tg-emoji emoji-id="{emoji_map[char]}">{char}</tg-emoji>'
+        else:
+            res += char
+    return res
+
+# 💡 [신규 엔진] 칭호 강화 이펙트 발생기 (프리미엄 이모지 완벽 패치 - 17강 한계돌파)
 def get_e_tag(e_lv):
     if e_lv <= 0: 
         return ""
     elif e_lv <= 2: 
         return f"<b>[+{e_lv}]</b> "
-    elif e_lv <= 4: 
+    elif e_lv == 3: 
         return f"🔷<code>[+{e_lv}]</code> "
+    elif e_lv == 4: 
+        return f"<tg-emoji emoji-id=\"5359528850743108099\">🔷</tg-emoji><code>[+{e_lv}]</code> "
     elif e_lv == 5: 
-        return f"🔥<b>【+{e_lv}】</b>🔥 "
+        return f"<tg-emoji emoji-id=\"5359284999679910348\">🔥</tg-emoji><b>【+{e_lv}】</b><tg-emoji emoji-id=\"5359284999679910348\">🔥</tg-emoji> "
     elif e_lv == 6: 
         return f"<tg-emoji emoji-id=\"5402406965252989103\">🔮</tg-emoji><code><b>[+{e_lv}]</b></code> "
-    elif e_lv <= 8: 
-        return f"<tg-emoji emoji-id=\"5431776939465516694\">💎</tg-emoji><b>【+{e_lv}】</b> "
+    elif e_lv == 7: 
+        num_str = get_num_emoji(f"+{e_lv}")
+        return f"<tg-emoji emoji-id=\"5361895016945950643\">🌟</tg-emoji><b>【{num_str}】</b> "
+    elif e_lv == 8: 
+        num_str = get_num_emoji(f"+{e_lv}")
+        return f"<tg-emoji emoji-id=\"5431776939465516694\">💎</tg-emoji><b>【{num_str}】</b> "
     elif e_lv == 9: 
-        return f"<tg-emoji emoji-id=\"5433758796289685818\">👑</tg-emoji><b>꧁+{e_lv}꧂</b> "
+        num_str = get_num_emoji(f"+{e_lv}")
+        return f"<tg-emoji emoji-id=\"5433758796289685818\">👑</tg-emoji><b>꧁{num_str}꧂</b> "
     else: 
-        return f"<tg-emoji emoji-id=\"6122954627567588952\">✨</tg-emoji><b><u>꧁༺+{e_lv}༻꧂</u></b><tg-emoji emoji-id=\"6122954627567588952\">✨</tg-emoji> "
+        # 10강 이상 (3연속 프리미엄 이모지 + 변환된 숫자)
+        num_str = get_num_emoji(f"+{e_lv}")
+        prefix = (
+            f"<tg-emoji emoji-id=\"5359653443449399145\">✨</tg-emoji>"
+            f"<tg-emoji emoji-id=\"5361979846845014099\">✨</tg-emoji>"
+            f"<tg-emoji emoji-id=\"5359477766402090098\">✨</tg-emoji>"
+        )
+        return f"{prefix}<b>꧁༺{num_str}༻꧂</b> "
 
 async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -333,8 +370,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for idx, r in enumerate(point_records, 1):
             e_lv = r.get("enhancement_level", 0)
             e_tag = get_e_tag(e_lv)
-            # 랭킹에서 개인 고유 ID 부분 삭제, 닉네임만 표시되도록 수정
-            msg += f" {idx}위 : {e_tag}{r.get('user_name', '유저')} - {r.get('score', 0):,}P\n"
+            
+            # 6강 이상이면 닉네임 진하게 출력
+            d_name = f"<b>{r.get('user_name', '유저')}</b>" if e_lv >= 6 else r.get('user_name', '유저')
+            msg += f" {idx}위 : {e_tag}{d_name} - {r.get('score', 0):,}P\n"
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
@@ -346,9 +385,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # 0강일 때도 [+0]이 보이도록 강제 처리
         e_tag_display = get_e_tag(e_lv).strip() if e_lv > 0 else "<b>[+0]</b>"
+        d_name = f"<b>{uname}</b>" if e_lv >= 6 else uname
         
         msg = (
-            f"💳 {e_tag_display} <b>{uname}</b>님의 계좌 상태\n\n"
+            f"💳 {e_tag_display} {d_name}님의 계좌 상태\n\n"
             f"💰 <b>현재 잔고:</b> {current_score:,} P\n"
             f"🎖 <b>강화 칭호:</b> +{e_lv} (모든 획득 포인트 +{e_lv}% 보너스)\n"
         )
@@ -366,8 +406,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c_score = user_record.get("score", 0)
         e_lv = user_record.get("enhancement_level", 0)
         
-        if e_lv >= 10:
-            err = await update.message.reply_text(f"🛑 <b>[MAX 레벨 도달]</b>\n이미 최고 레벨(+10)입니다. 더 이상 강화할 수 없습니다.", parse_mode="HTML")
+        if e_lv >= 17:
+            err = await update.message.reply_text(f"🛑 <b>[MAX 레벨 도달]</b>\n이미 최고 레벨(+17)입니다. 더 이상 강화할 수 없습니다.", parse_mode="HTML")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err.message_id], 3.0))
             return
             
@@ -383,8 +423,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif e_lv == 7: cost, prob = 10000, 0.10  # 7 -> 8강 (10%)
         elif e_lv == 8: cost, prob = 10000, 0.10  # 8 -> 9강 (10%)
         elif e_lv == 9: cost, prob = 30000, 0.02  # 9 -> 10강 (2%)
+        elif e_lv == 10: cost, prob = 30000, 0.05  # 10 -> 11강 (5%)
+        elif e_lv == 11: cost, prob = 30000, 0.05  # 11 -> 12강 (5%)
+        elif e_lv == 12: cost, prob = 30000, 0.05  # 12 -> 13강 (5%)
+        elif e_lv == 13: cost, prob = 30000, 0.05  # 13 -> 14강 (5%)
+        elif e_lv == 14: cost, prob = 30000, 0.05  # 14 -> 15강 (5%)
+        elif e_lv == 15: cost, prob = 30000, 0.05  # 15 -> 16강 (5%)
+        elif e_lv == 16: cost, prob = 30000, 0.05  # 16 -> 17강 (5%)
+            
         # 👑 [특별 혜택: 지정 유저 강화 확률 1.5배 비밀 버프]
-        if uid in [7380985690]:
+        if uid in [7380985690, 7966676973]:
             prob = prob * 1.5
         
         if c_score < cost:
@@ -398,9 +446,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if random.random() < prob:
             e_lv += 1
             e_tag_new = get_e_tag(e_lv).strip()
-            msg = f"🌟 <b>강화 성공!!!</b> 🌟\n\n🎉 <b>{uname}</b>님의 칭호가 {e_tag_new}(으)로 강화되었습니다!\n(모든 획득 포인트 {e_lv}% 영구 증가)\n💳 잔고: {c_score:,} P"
+            d_name = f"<b>{uname}</b>" if e_lv >= 6 else uname
+            msg = f"🌟 <b>강화 성공!!!</b> 🌟\n\n🎉 {d_name}님의 칭호가 {e_tag_new}(으)로 강화되었습니다!\n(모든 획득 포인트 {e_lv}% 영구 증가)\n💳 잔고: {c_score:,} P"
         else:
-            e_tag_old = get_e_tag(e_lv).strip() if e_lv > 0 else "[+0]"
+            e_tag_old = get_e_tag(e_lv).strip() if e_lv > 0 else "<b>[+0]</b>"
+            d_name = f"<b>{uname}</b>" if e_lv >= 6 else uname
             msg = f"💥 <b>강화 실패...</b> 💥\n\n아깝게 실패했습니다. 수치는 {e_tag_old}(으)로 유지됩니다.\n💳 잔고: {c_score:,} P"
             
         col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"score": c_score, "enhancement_level": e_lv, "user_name": uname}}, upsert=True)
@@ -452,9 +502,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if gamble_type:
             current_count = 0 if is_new_day else user_record.get(count_field, 0)
+            d_name = f"<b>{uname}</b>" if e_lv >= 6 else uname
             
             if current_count >= 10:
-                err_limit = await update.message.reply_text(f"🛑 {e_tag}{uname}님, [{gamble_type}] 배팅은 하루 최대 10회까지만 참여 가능합니다.")
+                err_limit = await update.message.reply_text(f"🛑 {e_tag}{d_name}님, [{gamble_type}] 배팅은 하루 최대 10회까지만 참여 가능합니다.")
                 if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_limit.message_id], 3.0))
                 return
 
@@ -473,9 +524,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 b_gained = actual_win - win_reward
                 current_score += actual_win
                 b_txt = f"\n🌟 <b>강화 보너스: +{b_gained:,} P</b>" if b_gained > 0 else ""
-                msg_text = f"🔥 <b>{e_tag}{uname}님 {gamble_type} 성공! ({new_count}/10)</b>\n배당금 {actual_win:,} 포인트를 획득했습니다!{b_txt}\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
+                msg_text = f"🔥 {e_tag}{d_name}님 <b>{gamble_type} 성공! ({new_count}/10)</b>\n배당금 {actual_win:,} 포인트를 획득했습니다!{b_txt}\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
             else:
-                msg_text = f"💀 <b>{e_tag}{uname}님 쪽박입니다. ({new_count}/10)</b>\n배팅포인트 {cost:,} P를 잃었습니다.\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
+                msg_text = f"💀 {e_tag}{d_name}님 <b>쪽박입니다. ({new_count}/10)</b>\n배팅포인트 {cost:,} P를 잃었습니다.\n💰 현재 보유 포인트: {current_score:,} P\n💎 누적 롤링 포인트: {new_rolling:,} P (+{rolling_bonus})"
                 
             update_data = {
                 "user_name": uname, 
@@ -514,9 +565,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         yesterday_str = (now_kst - timedelta(days=1)).strftime("%Y%m%d")
         last_check = user_record.get("last_check_date", "") if user_record else ""
         current_streak = user_record.get("check_streak", 0) if user_record else 0
+        d_name = f"<b>{uname}</b>" if e_lv >= 6 else uname
         
         if last_check == today_str:
-            err_msg = await update.message.reply_text(f"❌ {e_tag}{uname}님은 오늘 이미 출석체크를 완료하셨습니다. (현재 연속 {current_streak}일차)")
+            err_msg = await update.message.reply_text(f"❌ {e_tag}{d_name}님은 오늘 이미 출석체크를 완료하셨습니다. (현재 연속 {current_streak}일차)")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, err_msg.message_id], 3.0))
             return
             
@@ -531,7 +583,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         col_scores.update_one({"chat_id": str(chat_id), "user_id": str(uid), "game": "snake"}, {"$set": {"user_name": uname, "score": new_score, "last_check_date": today_str, "check_streak": new_streak}}, upsert=True)
         b_txt = f" (🌟강화보너스 +{b_gained:,}P)" if b_gained > 0 else ""
-        res_msg = await update.message.reply_text(f"✅ {e_tag}{uname}님 출석 완료! {actual_reward:,}P 지급 완료! ({new_streak}일차){b_txt}{bonus_msg}\n💰 보유 잔고: {new_score:,} P", parse_mode="HTML")
+        res_msg = await update.message.reply_text(f"✅ {e_tag}{d_name}님 출석 완료! {actual_reward:,}P 지급 완료! ({new_streak}일차){b_txt}{bonus_msg}\n💰 보유 잔고: {new_score:,} P", parse_mode="HTML")
         if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, res_msg.message_id], 4.5))
         return
 
@@ -550,10 +602,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         e_lv = user_record.get("enhancement_level", 0) if user_record else 0
         e_tag = get_e_tag(e_lv)
         bonus_pct = e_lv * 0.01
+        d_name = f"<b>{uname}</b>" if e_lv >= 6 else uname
         
         today_box_count = user_record.get("today_box_count", 0) if user_record and user_record.get("last_box_date") == today_str else 0
         if today_box_count >= 5:
-            limit_msg = await update.message.reply_text(f"🛑 {e_tag}{uname}님, 연합상자는 하루 최대 5번까지만 주워 먹을 수 있습니다.")
+            limit_msg = await update.message.reply_text(f"🛑 {e_tag}{d_name}님, 연합상자는 하루 최대 5번까지만 주워 먹을 수 있습니다.")
             if update.effective_chat.type != "private": asyncio.create_task(delete_messages_delayed(context, chat_id, [user_msg_id, limit_msg.message_id], 3.0))
             return
             
@@ -565,7 +618,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         col_scores.update_one({"chat_id": r_chat_id, "user_id": str(uid), "game": "snake"}, {"$inc": {"score": actual_bonus}, "$set": {"user_name": uname, "last_box_date": today_str, "today_box_count": new_box_count}}, upsert=True)
         b_txt = f" (🌟강화보너스 +{b_gained:,}P)" if b_gained > 0 else ""
-        await update.message.reply_text(f"🎉 {e_tag}{uname}(<code>{uid}</code>) 상자 획득! +{actual_bonus:,}P 지급{b_txt}. ({new_box_count}/5)", parse_mode="HTML")
+        await update.message.reply_text(f"🎉 {e_tag}{d_name}(<code>{uid}</code>) 상자 획득! +{actual_bonus:,}P 지급{b_txt}. ({new_box_count}/5)", parse_mode="HTML")
         return
 
     if uid in ADMIN_LIST and text.upper().startswith('/BET예약마감'):
@@ -619,7 +672,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             col_scores.update_one({"chat_id": str(chat_id), "user_id": w_uid, "game": "snake"}, {"$inc": {"score": actual_win}}, upsert=True)
             b_txt = f" (+🌟{b_gained:,})" if b_gained > 0 else ""
-            report += f"• {e_tag}{w['user_name']}님: +{actual_win:,} P 적중 완료{b_txt}\n"
+            
+            d_name = f"<b>{w['user_name']}</b>" if e_lv >= 6 else w['user_name']
+            report += f"• {e_tag}{d_name}님: +{actual_win:,} P 적중 완료{b_txt}\n"
             
         col_bets.delete_many({"chat_id": str(chat_id)}); col_user_bets.delete_many({"chat_id": str(chat_id)})
         c_room_str = str(chat_id)
@@ -649,7 +704,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     url = f"http://api.openweathermap.org/data/2.5/forecast?lat={coord['lat']}&lon={coord['lon']}&appid={WEATHER_API_KEY}&units=metric"
                     res = requests.get(url, timeout=8).json()
                     if str(res.get("cod")) != "200": msg += f"• {s_name}: 데이터 유실\n"; continue
-                    timeline_forecasts, today_str = [], datetime.now(KST).strftime("%Y-%m-%d")
+                    timeline_forecasts, today_str = datetime.now(KST).strftime("%Y-%m-%d"), []
                     dome_tag = " [돔]" if "돔" in s_name else ""
                     for item in res.get("list", []):
                         dt_kst = datetime.fromtimestamp(item['dt'], tz=timezone.utc).astimezone(KST)
