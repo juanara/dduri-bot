@@ -109,38 +109,38 @@ def get_num_emoji(text):
             res += char
     return res
 
-# 💡 [신규 엔진] 칭호 강화 이펙트 발생기 (프리미엄 이모지 완벽 패치 - 17강 한계돌파)
+# 💡 [정밀 수정 엔진] 이모지 파싱 오류 완벽 차단용
 def get_e_tag(e_lv):
     if e_lv <= 0: 
         return ""
-    elif e_lv <= 2: 
+    
+    # 이모지 ID를 텔레그램이 인식하도록 태그 구조 재설계
+    def t(eid, txt):
+        return f'<tg-emoji emoji-id="{eid}">{txt}</tg-emoji>'
+
+    if e_lv <= 2: 
         return f"<b>[+{e_lv}]</b> "
     elif e_lv == 3: 
         return f"🔷<code>[+{e_lv}]</code> "
     elif e_lv == 4: 
-        return f"<tg-emoji emoji-id=\"5359528850743108099\">🔷</tg-emoji><code>[+{e_lv}]</code> "
+        return f"{t('5359528850743108099', '🔷')}<code>[+{e_lv}]</code> "
     elif e_lv == 5: 
-        return f"<tg-emoji emoji-id=\"5359284999679910348\">🔥</tg-emoji><b>【+{e_lv}】</b><tg-emoji emoji-id=\"5359284999679910348\">🔥</tg-emoji> "
+        return f"{t('5359284999679910348', '🔥')}<b>【+{e_lv}】</b>{t('5359284999679910348', '🔥')} "
     elif e_lv == 6: 
-        return f"<tg-emoji emoji-id=\"5402406965252989103\">🔮</tg-emoji><code><b>[+{e_lv}]</b></code> "
+        return f"{t('5402406965252989103', '🔮')}<code><b>[+{e_lv}]</b></code> "
     elif e_lv == 7: 
-        num_str = get_num_emoji(f"+{e_lv}")
-        return f"<tg-emoji emoji-id=\"5361895016945950643\">🌟</tg-emoji><b>【{num_str}】</b> "
+        n = get_num_emoji(f"+{e_lv}")
+        return f"{t('5361895016945950643', '🌟')}<b>【{n}】</b> "
     elif e_lv == 8: 
-        num_str = get_num_emoji(f"+{e_lv}")
-        return f"<tg-emoji emoji-id=\"5431776939465516694\">💎</tg-emoji><b>【{num_str}】</b> "
+        n = get_num_emoji(f"+{e_lv}")
+        return f"{t('5431776939465516694', '💎')}<b>【{n}】</b> "
     elif e_lv == 9: 
-        num_str = get_num_emoji(f"+{e_lv}")
-        return f"<tg-emoji emoji-id=\"5433758796289685818\">👑</tg-emoji><b>꧁{num_str}꧂</b> "
+        n = get_num_emoji(f"+{e_lv}")
+        return f"{t('5433758796289685818', '👑')}<b>꧁{n}꧂</b> "
     else: 
-        # 10강 이상 (3연속 프리미엄 이모지 + 변환된 숫자)
-        num_str = get_num_emoji(f"+{e_lv}")
-        prefix = (
-            f"<tg-emoji emoji-id=\"5359653443449399145\">✨</tg-emoji>"
-            f"<tg-emoji emoji-id=\"5361979846845014099\">✨</tg-emoji>"
-            f"<tg-emoji emoji-id=\"5359477766402090098\">✨</tg-emoji>"
-        )
-        return f"{prefix}<b>꧁༺{num_str}༻꧂</b> "
+        n = get_num_emoji(f"+{e_lv}")
+        p = t('5359653443449399145', '✨') + t('5361979846845014099', '✨') + t('5359477766402090098', '✨')
+        return f"{p}<b>꧁༺{n}༻꧂</b> "
 
 async def check_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
